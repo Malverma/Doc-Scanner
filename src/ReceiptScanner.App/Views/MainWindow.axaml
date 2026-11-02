@@ -1,0 +1,324 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ReceiptScanner.App.ViewModels"
+        x:Class="ReceiptScanner.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Receipt Scanner"
+        Width="1040" Height="680" MinWidth="820" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBrush}"
+        Foreground="{DynamicResource TextBrush}">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+    </Style>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Background" Value="{DynamicResource TileBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource TileHoverBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+    </Style>
+    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource TileHoverBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+    </Style>
+    <Style Selector="Button.link">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="6,4"/>
+      <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+      <Setter Property="CornerRadius" Value="6"/>
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+    </Style>
+    <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+    </Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource DisabledAccentBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+    </Style>
+    <Style Selector="Button.tile">
+      <Setter Property="Background" Value="{DynamicResource TileBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Width" Value="168"/>
+      <Setter Property="Height" Value="92"/>
+      <Setter Property="Margin" Value="0,0,12,12"/>
+      <Setter Property="Padding" Value="14,12"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="Button.tile:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource TileHoverBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
+    </Style>
+    <Style Selector="Button.tile.target">
+      <Setter Property="Background" Value="{DynamicResource TileTargetBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+    </Style>
+    <Style Selector="Button.tile.target:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource TileTargetBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Border Grid.Row="0" IsVisible="{Binding IsSimulated}" Background="{DynamicResource WarnBackBrush}" Padding="16,6">
+      <TextBlock FontWeight="SemiBold" Text="Simulated scanner: these are test images, not real scans."/>
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,340">
+      <!-- Folders and scanning -->
+      <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto" Margin="20,16,20,16">
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+          <ItemsControl ItemsSource="{Binding Breadcrumbs}" VerticalAlignment="Center" Margin="-6,0,8,0">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:BreadcrumbViewModel">
+                <StackPanel Orientation="Horizontal">
+                  <Button Classes="link" Content="{Binding Name}" FontSize="15" FontWeight="SemiBold"
+                          Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).BreadcrumbClickedCommand}"
+                          CommandParameter="{Binding}"/>
+                  <TextBlock Text="/" Classes="muted" VerticalAlignment="Center" Margin="2,0" IsVisible="{Binding !IsLast}"/>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Grid.Column="1" Content="New folder" Command="{Binding BeginNewFolderCommand}"/>
+        </Grid>
+
+        <Grid Grid.Row="1" RowDefinitions="Auto,*">
+          <Border Grid.Row="0" IsVisible="{Binding IsMoving}" Background="{DynamicResource TileTargetBrush}" CornerRadius="6" Padding="12,8" Margin="0,0,0,12">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+              <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="Click a folder to move this receipt there."/>
+              <Button Grid.Column="1" Content="Move here" Command="{Binding MoveHereCommand}" Margin="8,0"/>
+              <Button Grid.Column="2" Content="Cancel" Command="{Binding CancelMoveCommand}"/>
+            </Grid>
+          </Border>
+
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Tiles}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:FolderTileViewModel">
+                  <Button Classes="tile" Classes.target="{Binding IsTarget}"
+                          DoubleTapped="OnTileDoubleTapped"
+                          ToolTip.Tip="Click to scan here. Double-click to open."
+                          Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).TileClickedCommand}"
+                          CommandParameter="{Binding}">
+                    <Button.ContextMenu>
+                      <ContextMenu>
+                        <MenuItem Header="Open" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).OpenTileCommand}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Show in File Explorer" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).OpenTileInFileManagerCommand}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Rename" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).BeginRenameCommand}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Delete if empty" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).DeleteFolderCommand}" CommandParameter="{Binding}"/>
+                      </ContextMenu>
+                    </Button.ContextMenu>
+                    <Grid RowDefinitions="*,Auto">
+                      <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
+                      <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                        <TextBlock Text="{Binding CountText}" Classes="muted" FontSize="12"/>
+                        <TextBlock Grid.Column="1" Text="subfolders ›" Classes="muted" FontSize="12" IsVisible="{Binding HasSubfolders}"/>
+                      </Grid>
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+
+          <TextBlock Grid.Row="1" IsVisible="{Binding HasNoFolders}" Classes="muted" TextWrapping="Wrap"
+                     Text="No folders here yet. Receipts will save in this folder, or use New folder to start sorting."/>
+        </Grid>
+
+        <StackPanel Grid.Row="2" Spacing="10" Margin="0,8,0,0">
+          <Border IsVisible="{Binding HasError}" Background="{DynamicResource ErrorBackBrush}"
+                  BorderBrush="{DynamicResource ErrorLineBrush}" BorderThickness="3,0,0,0" CornerRadius="4" Padding="14,10">
+            <StackPanel Spacing="4">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="heading" Text="{Binding ErrorTitle}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" Classes="link" Content="Dismiss" Command="{Binding DismissErrorCommand}"/>
+              </Grid>
+              <ItemsControl ItemsSource="{Binding ErrorSteps}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2"/>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0" IsVisible="{Binding ErrorOffersLongPaperChoice}">
+                <Button Classes="primary" Content="Set up Long Paper" Command="{Binding OpenLongPaperSetupCommand}"/>
+                <Button Content="Scan anyway" Command="{Binding ScanAnywayCommand}"
+                        ToolTip.Tip="A long receipt may be cut off or jam. The scan will be held for you to check."/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding IsIdleHintVisible}"
+                     Text="Insert one receipt, flat and straight, with the guide against its edge. Support long receipts by hand."/>
+
+          <StackPanel Spacing="6" IsVisible="{Binding IsScanning}">
+            <ProgressBar IsIndeterminate="True"/>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="{Binding ProgressText}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+              <Button Grid.Column="1" Content="Stop waiting" IsVisible="{Binding ShowStopWaiting}" Command="{Binding StopWaitingCommand}" Margin="8,0,0,0"
+                      ToolTip.Tip="Ends the scan. You may need to unplug the scanner and plug it back in afterward."/>
+            </Grid>
+          </StackPanel>
+
+          <Button Name="ScanButton" Classes="primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  FontSize="17" FontWeight="SemiBold" Padding="0,14"
+                  Content="{Binding ScanButtonText}" Command="{Binding ScanCommand}" IsEnabled="{Binding CanScan}"/>
+
+          <StackPanel Orientation="Horizontal" Spacing="14">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="DPI" Classes="muted" VerticalAlignment="Center"/>
+              <ComboBox ItemsSource="{Binding DpiChoices}" SelectedItem="{Binding SelectedDpi}" MinWidth="82" IsEnabled="{Binding CanScan}"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="Color" Classes="muted" VerticalAlignment="Center"/>
+              <ComboBox ItemsSource="{Binding ColorChoices}" SelectedItem="{Binding SelectedColor}" MinWidth="88" IsEnabled="{Binding CanScan}"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="Format" Classes="muted" VerticalAlignment="Center"/>
+              <ComboBox ItemsSource="{Binding FormatChoices}" SelectedItem="{Binding SelectedFormat}" MinWidth="110" IsEnabled="{Binding CanScan}"/>
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+
+      <!-- Latest scan -->
+      <Border Grid.Column="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0">
+        <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+          <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,12">
+            <TextBlock Classes="heading" Text="Latest scan" IsVisible="{Binding !HasLatest}"/>
+            <TextBlock Classes="heading" Text="{Binding LatestTitle}" IsVisible="{Binding HasLatest}" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Classes="muted" FontSize="12" Text="{Binding LatestDetails}" IsVisible="{Binding HasLatest}"/>
+            <TextBlock FontSize="12" Foreground="{DynamicResource OkBrush}" FontWeight="SemiBold" Text="{Binding Notice}" TextWrapping="Wrap"/>
+            <Border IsVisible="{Binding NeedsReview}" Background="{DynamicResource WarnBackBrush}"
+                    BorderBrush="{DynamicResource WarnLineBrush}" BorderThickness="3,0,0,0" CornerRadius="4" Padding="10,8" Margin="0,6,0,0">
+              <ItemsControl ItemsSource="{Binding Warnings}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2"/>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Border>
+          </StackPanel>
+
+          <Border Grid.Row="1" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="4" ClipToBounds="True">
+            <Grid>
+              <TextBlock IsVisible="{Binding !HasLatest}" Classes="muted" HorizontalAlignment="Center" VerticalAlignment="Center"
+                         TextAlignment="Center" TextWrapping="Wrap" Margin="24" Text="Your most recent scan appears here."/>
+              <ScrollViewer IsVisible="{Binding HasLatest}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <Image Source="{Binding PreviewImage}" Stretch="Uniform" StretchDirection="Both" VerticalAlignment="Top"/>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+
+          <Grid Grid.Row="2" Margin="0,12,0,0" ColumnDefinitions="*,8,*" RowDefinitions="Auto,8,Auto" IsVisible="{Binding CanUseLatestActions}">
+            <Button Grid.Row="0" Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Rotate" Command="{Binding RotateCommand}"/>
+            <Button Grid.Row="0" Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Move" Command="{Binding BeginMoveCommand}"/>
+            <Button Grid.Row="2" Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Rescan" Command="{Binding RescanCommand}"/>
+            <Button Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Delete" Command="{Binding DeleteLatestCommand}"/>
+          </Grid>
+
+          <Grid Grid.Row="2" Margin="0,12,0,0" ColumnDefinitions="*,8,*" RowDefinitions="Auto,8,Auto" IsVisible="{Binding NeedsReview}">
+            <Button Grid.Column="0" Classes="primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Save anyway" Command="{Binding KeepCommand}" IsEnabled="{Binding !IsProcessing}"/>
+            <Button Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Discard" Command="{Binding DiscardCommand}" IsEnabled="{Binding !IsProcessing}"/>
+            <Button Grid.Row="2" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Rotate" Command="{Binding RotateCommand}" IsEnabled="{Binding !IsProcessing}"/>
+          </Grid>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="14,4">
+      <Grid ColumnDefinitions="*,Auto">
+        <Button Classes="link" Command="{Binding ProbeScannerCommand}" ToolTip.Tip="Check for the scanner again" HorizontalAlignment="Left">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{DynamicResource OkBrush}" IsVisible="{Binding ScannerFound}"/>
+            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{DynamicResource ErrorLineBrush}" IsVisible="{Binding !ScannerFound}"/>
+            <TextBlock Text="{Binding ScannerStatus}" FontSize="12" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </Button>
+        <Button Grid.Column="1" Classes="link" Content="Settings" Command="{Binding OpenSettingsCommand}"/>
+      </Grid>
+    </Border>
+
+    <!-- Name prompt -->
+    <Grid Grid.RowSpan="3" Background="{DynamicResource ScrimBrush}" IsVisible="{Binding IsNamePromptOpen}">
+      <Border Background="{DynamicResource PanelBrush}" CornerRadius="8" Padding="20" Width="380" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="heading" Text="{Binding NamePromptTitle}"/>
+          <TextBox Name="NameBox" Text="{Binding NamePromptText}" KeyDown="OnNameBoxKeyDown"/>
+          <TextBlock Foreground="{DynamicResource ErrorLineBrush}" TextWrapping="Wrap" Text="{Binding NamePromptError}"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Cancel" Command="{Binding CancelNamePromptCommand}"/>
+            <Button Classes="primary" Content="Save" Command="{Binding CommitNamePromptCommand}"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <!-- Settings -->
+    <Grid Grid.RowSpan="3" Background="{DynamicResource ScrimBrush}" IsVisible="{Binding IsSettingsOpen}">
+      <Border Background="{DynamicResource PanelBrush}" CornerRadius="8" Padding="22" Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel Spacing="16">
+          <TextBlock Classes="heading" FontSize="17" Text="Settings"/>
+
+          <StackPanel Spacing="6">
+            <TextBlock FontWeight="SemiBold" Text="Base folder"/>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="muted" Text="{Binding BaseFolder}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+              <Button Grid.Column="1" Content="Change" Command="{Binding ChooseBaseFolderCommand}" Margin="8,0,0,0"/>
+            </Grid>
+          </StackPanel>
+
+          <CheckBox IsChecked="{Binding TrimBlankSpace}" Content="Trim blank space around receipts"/>
+
+          <StackPanel Spacing="6">
+            <TextBlock FontWeight="SemiBold" Text="Long Paper"/>
+            <Grid ColumnDefinitions="Auto,*">
+              <TextBlock Classes="muted" Text="Method" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <ComboBox Grid.Column="1" ItemsSource="{Binding LongPaperChoices}" SelectedItem="{Binding SelectedLongPaperMethod}" HorizontalAlignment="Stretch"/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+              <Button Content="Set up Long Paper" Command="{Binding SetUpLongPaperCommand}" IsEnabled="{Binding !IsSettingsBusy}"/>
+              <Button Content="Run driver check" Command="{Binding RunDriverCheckCommand}" IsEnabled="{Binding !IsSettingsBusy}"/>
+              <Button Content="Open logs" Command="{Binding OpenLogFolderCommand}"/>
+            </StackPanel>
+            <TextBlock Text="{Binding SettingsMessage}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+          </StackPanel>
+
+          <Button HorizontalAlignment="Right" Classes="primary" Content="Done" Command="{Binding CloseSettingsCommand}" IsEnabled="{Binding !IsSettingsBusy}"/>
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

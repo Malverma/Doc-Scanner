@@ -1,0 +1,54 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ReceiptScanner.App.App"
+             RequestedThemeVariant="Default">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="WindowBrush" Color="#F7F7F5"/>
+          <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
+          <SolidColorBrush x:Key="TileBrush" Color="#FFFFFF"/>
+          <SolidColorBrush x:Key="TileHoverBrush" Color="#F0F0ED"/>
+          <SolidColorBrush x:Key="TileTargetBrush" Color="#E5F0FB"/>
+          <SolidColorBrush x:Key="LineBrush" Color="#DEDED9"/>
+          <SolidColorBrush x:Key="TextBrush" Color="#1E1E1C"/>
+          <SolidColorBrush x:Key="MutedBrush" Color="#62625C"/>
+          <SolidColorBrush x:Key="AccentBrush" Color="#0B5CAD"/>
+          <SolidColorBrush x:Key="AccentHoverBrush" Color="#094D91"/>
+          <SolidColorBrush x:Key="AccentTextBrush" Color="#FFFFFF"/>
+          <SolidColorBrush x:Key="DisabledAccentBrush" Color="#8FA9C4"/>
+          <SolidColorBrush x:Key="ErrorBackBrush" Color="#FBEAE8"/>
+          <SolidColorBrush x:Key="ErrorLineBrush" Color="#C8372D"/>
+          <SolidColorBrush x:Key="WarnBackBrush" Color="#FFF4D6"/>
+          <SolidColorBrush x:Key="WarnLineBrush" Color="#A66F00"/>
+          <SolidColorBrush x:Key="OkBrush" Color="#1A7F4B"/>
+          <SolidColorBrush x:Key="ScrimBrush" Color="#66000000"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="WindowBrush" Color="#1C1C1B"/>
+          <SolidColorBrush x:Key="PanelBrush" Color="#252524"/>
+          <SolidColorBrush x:Key="TileBrush" Color="#2B2B2A"/>
+          <SolidColorBrush x:Key="TileHoverBrush" Color="#353533"/>
+          <SolidColorBrush x:Key="TileTargetBrush" Color="#1D3A57"/>
+          <SolidColorBrush x:Key="LineBrush" Color="#3D3D3A"/>
+          <SolidColorBrush x:Key="TextBrush" Color="#F0F0EC"/>
+          <SolidColorBrush x:Key="MutedBrush" Color="#AEAEA7"/>
+          <SolidColorBrush x:Key="AccentBrush" Color="#2E86DE"/>
+          <SolidColorBrush x:Key="AccentHoverBrush" Color="#4B9AE8"/>
+          <SolidColorBrush x:Key="AccentTextBrush" Color="#07182A"/>
+          <SolidColorBrush x:Key="DisabledAccentBrush" Color="#2F4B66"/>
+          <SolidColorBrush x:Key="ErrorBackBrush" Color="#3B1F1C"/>
+          <SolidColorBrush x:Key="ErrorLineBrush" Color="#E5685E"/>
+          <SolidColorBrush x:Key="WarnBackBrush" Color="#3A2F12"/>
+          <SolidColorBrush x:Key="WarnLineBrush" Color="#D9A532"/>
+          <SolidColorBrush x:Key="OkBrush" Color="#4CC285"/>
+          <SolidColorBrush x:Key="ScrimBrush" Color="#99000000"/>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme/>
+  </Application.Styles>
+</Application>
