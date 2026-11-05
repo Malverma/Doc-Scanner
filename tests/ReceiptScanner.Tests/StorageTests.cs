@@ -271,6 +271,62 @@ public class SettingsTests
     }
 
     [Fact]
+    public void Receipt_list_pairs_files_sorts_newest_first_and_skips_partials()
+    {
+        using var dir = new TempDir();
+        var service = new FolderService(dir.Path);
+        void Write(string name, int ageMinutes)
+        {
+            var path = Path.Combine(dir.Path, name);
+            File.WriteAllBytes(path, [1, 2, 3]);
+            File.SetLastWriteTime(path, DateTime.Now.AddMinutes(-ageMinutes));
+        }
+
+        Write("old.pdf", 60);
+        Write("new.pdf", 1);
+        Write("new.png", 1);
+        Write("new2.pdf.partial", 0);
+        Write("notes.txt", 0);
+
+        var list = service.ListReceipts(dir.Path);
+
+        Assert.Equal(["new", "old"], list.Select(r => r.BaseName));
+        Assert.Equal(2, list[0].Files.Count);
+        Assert.Equal(6, list[0].SizeBytes);
+        Assert.Throws<InvalidOperationException>(() => service.ListReceipts(Path.GetTempPath()));
+    }
+
+    [Fact]
+    public void Receipt_key_changes_when_the_file_is_rewritten()
+    {
+        using var dir = new TempDir();
+        var service = new FolderService(dir.Path);
+        var path = Path.Combine(dir.Path, "a.pdf");
+        File.WriteAllBytes(path, [1]);
+        var before = service.ListReceipts(dir.Path)[0].Key;
+
+        File.WriteAllBytes(path, [1, 2]);
+
+        Assert.NotEqual(before, service.ListReceipts(dir.Path)[0].Key);
+    }
+
+    [Fact]
+    public void Scan_size_settings_round_trip_and_bad_values_are_dropped()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Path, "s.json");
+
+        new AppSettings { BaseFolder = "/x", ExpectedWidthMm = 80, ExpectedLengthMm = 400 }.Save(path);
+        var loaded = AppSettings.Load(path, "/default");
+        Assert.Equal((80d, 400d), (loaded.ExpectedWidthMm, loaded.ExpectedLengthMm));
+
+        new AppSettings { BaseFolder = "/x", ExpectedWidthMm = 500, ExpectedLengthMm = -1 }.Save(path);
+        loaded = AppSettings.Load(path, "/default");
+        Assert.Null(loaded.ExpectedWidthMm);
+        Assert.Null(loaded.ExpectedLengthMm);
+    }
+
+    [Fact]
     public void Never_offers_above_the_optical_limit() => Assert.DoesNotContain(1200, AppSettings.AllowedDpi);
 }
 
@@ -281,7 +337,7 @@ public class ErrorTextTests
     {
         var steps = ScanErrorText.Describe(ScanErrorCode.Jam).Steps;
 
-        Assert.Contains("Open the Top Cover before pulling", steps[0]);
+        Assert.Contains("Open the scanner's cover before pulling", steps[0]);
     }
 
     [Fact]
@@ -290,6 +346,56 @@ public class ErrorTextTests
         foreach (var code in Enum.GetValues<ScanErrorCode>())
         {
             Assert.NotEmpty(ScanErrorText.Describe(code).Steps);
+            foreach (var model in ScannerModels.All)
+            {
+                Assert.NotEmpty(ScanErrorText.Describe(code, model).Steps);
+            }
         }
+    }
+
+    [Fact]
+    public void Not_found_names_the_model_and_its_driver()
+    {
+        var epson = ScanErrorText.Describe(ScanErrorCode.ScannerNotFound, ScannerModels.EpsonRr70W);
+        var unknown = ScanErrorText.Describe(ScanErrorCode.ScannerNotFound);
+
+        Assert.Equal("RR-70W not found", epson.Title);
+        Assert.Contains(epson.Steps, s => s.Contains("Epson Scan 2", StringComparison.Ordinal));
+        Assert.DoesNotContain("Brother", string.Join(" ", epson.Steps), StringComparison.Ordinal);
+        Assert.Equal("Scanner not found", unknown.Title);
+    }
+}
+
+public class ScannerModelTests
+{
+    [Theory]
+    [InlineData("TW-Brother DS-640", "brother-ds640")]
+    [InlineData("EPSON RR-70W", "epson-rr70w")]
+    [InlineData("Epson RR70W (Network)", "epson-rr70w")]
+    public void Recognizes_twain_source_names(string source, string id) =>
+        Assert.Equal(id, ScannerModels.FromSourceName(source)?.Id);
+
+    [Fact]
+    public void Ignores_unsupported_sources() => Assert.Null(ScannerModels.FromSourceName("HP Smart Tank 5100 TWAIN"));
+
+    [Fact]
+    public void Automatic_takes_the_first_known_model_and_a_preference_overrides_it()
+    {
+        string[] sources = ["WIA-Something", "EPSON RR-70W", "TW-Brother DS-640"];
+
+        Assert.Equal("TW-Brother DS-640", ScannerModels.Pick(sources, null)?.Source);
+        Assert.Equal("EPSON RR-70W", ScannerModels.Pick(sources, "epson-rr70w")?.Source);
+        Assert.Null(ScannerModels.Pick(["TW-Brother DS-640"], "epson-rr70w"));
+        Assert.Equal("EPSON RR-70W", ScannerModels.Pick(["EPSON RR-70W"], null)?.Source);
+    }
+
+    [Fact]
+    public void Unknown_saved_scanner_falls_back_to_automatic()
+    {
+        using var dir = new TempDir();
+        var path = Path.Combine(dir.Path, "settings.json");
+        File.WriteAllText(path, """{"Scanner":"nope"}""");
+
+        Assert.Null(AppSettings.Load(path, dir.Path).Scanner);
     }
 }

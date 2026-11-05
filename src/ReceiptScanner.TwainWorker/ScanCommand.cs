@@ -18,10 +18,14 @@ internal sealed class ScanCommand(ScanRequest request)
 
     public int Run()
     {
-        using var host = TwainSessionHost.Open();
+        using var host = TwainSessionHost.Open(request.ScannerId);
         _host = host;
 
-        var status = LongPaperConfigurator.Apply(host, request.Strategy, request.ProfilePath);
+        var status = LongPaperConfigurator.Apply(host, request);
+        ConfigureScan();
+
+        // A driver can reset its page size when the resolution or pixel type changes, so this comes last.
+        status = LongPaperConfigurator.Reassert(host, request, status);
         Output.Emit(new WorkerEvent
         {
             Type = WorkerEvent.LongPaper,
@@ -36,8 +40,6 @@ internal sealed class ScanCommand(ScanRequest request)
         {
             throw new WorkerException(ScanErrorCode.LongPaperUnconfirmed, status.Evidence);
         }
-
-        ConfigureScan();
 
         using var sink = new RawSink(request.RawOutputPath);
         _sink = sink;
@@ -81,15 +83,34 @@ internal sealed class ScanCommand(ScanRequest request)
                 noData ? "The scan ended without any image data." : $"Only {sink.RowsWritten} rows arrived.");
         }
 
+        var paperRemaining = FeederStillLoaded();
         Output.Emit(new WorkerEvent
         {
             Type = WorkerEvent.Complete,
+            PaperRemaining = paperRemaining ? true : null,
             Width = image.Width,
             Height = image.Height,
             BytesPerPixel = image.BytesPerPixel,
             Dpi = image.Dpi,
         });
         return 0;
+    }
+
+    /// <summary>A sensor reading, so it's only a warning. Unreadable means unknown, not that paper remains.</summary>
+    private bool FeederStillLoaded()
+    {
+        try
+        {
+            var cap = _host.Source.Capabilities.CapFeederLoaded;
+            var loaded = cap.IsSupported && cap.CanGetCurrent && cap.GetCurrent() == BoolType.True;
+            Output.Log($"Feeder loaded after the scan: {loaded}");
+            return loaded;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Output.Log($"Couldn't read the feeder after the scan: {ex.GetType().Name}");
+            return false;
+        }
     }
 
     private void ConfigureScan()

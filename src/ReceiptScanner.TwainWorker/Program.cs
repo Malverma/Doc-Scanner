@@ -19,21 +19,22 @@ internal static class Program
 
             var command = args.FirstOrDefault() ?? "";
             var options = ParseOptions(args.Skip(1).ToArray());
+            var scanner = options.GetValueOrDefault("scanner");
             switch (command)
             {
                 case "probe":
-                    using (var host = TwainSessionHost.Open())
+                    // Opening the source reports it.
+                    using (TwainSessionHost.Open(scanner))
                     {
-                        Output.Emit(new WorkerEvent { Type = WorkerEvent.Source, Message = $"{host.Source.Name}, driver {host.DriverVersion}" });
                     }
 
                     return 0;
                 case "scan":
                     return new ScanCommand(BuildRequest(options)).Run();
                 case "setup":
-                    return SetupCommand.Run(Required(options, "profile"));
+                    return SetupCommand.Run(Required(options, "profile"), scanner);
                 case "discover":
-                    return DiscoverCommand.Run(Required(options, "out"));
+                    return DiscoverCommand.Run(Required(options, "out"), scanner);
                 default:
                     throw new ArgumentException($"Unknown command \"{command}\". Use probe, scan, setup or discover.");
             }
@@ -61,7 +62,13 @@ internal static class Program
         Required(options, "out"),
         Enum.Parse<LongPaperStrategy>(Required(options, "strategy")),
         Required(options, "profile"),
-        options.ContainsKey("allow-unconfirmed"));
+        options.ContainsKey("allow-unconfirmed"),
+        OptionalNumber(options, "width-mm"),
+        OptionalNumber(options, "length-mm"),
+        options.GetValueOrDefault("scanner"));
+
+    private static double? OptionalNumber(Dictionary<string, string> options, string name) =>
+        options.TryGetValue(name, out var value) ? double.Parse(value, CultureInfo.InvariantCulture) : null;
 
     private static Dictionary<string, string> ParseOptions(string[] args)
     {

@@ -81,6 +81,27 @@
       <Setter Property="Background" Value="{DynamicResource TileTargetBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
     </Style>
+    <Style Selector="Button.dropTarget">
+      <Setter Property="Background" Value="{DynamicResource TileTargetBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <Style Selector="Button.dropTarget /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource TileTargetBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <Style Selector="Border.receipt">
+      <Setter Property="Background" Value="{DynamicResource TileBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="12,8"/>
+      <Setter Property="Margin" Value="0,0,12,6"/>
+      <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style Selector="Border.receipt:pointerover">
+      <Setter Property="Background" Value="{DynamicResource TileHoverBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
+    </Style>
   </Window.Styles>
 
   <Grid RowDefinitions="Auto,*,Auto">
@@ -100,6 +121,8 @@
               <DataTemplate x:DataType="vm:BreadcrumbViewModel">
                 <StackPanel Orientation="Horizontal">
                   <Button Classes="link" Content="{Binding Name}" FontSize="15" FontWeight="SemiBold"
+                          DragDrop.AllowDrop="True" DragDrop.DragEnter="OnFolderDragEnter" DragDrop.DragOver="OnFolderDragOver"
+                          DragDrop.DragLeave="OnFolderDragLeave" DragDrop.Drop="OnFolderDrop"
                           Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).BreadcrumbClickedCommand}"
                           CommandParameter="{Binding}"/>
                   <TextBlock Text="/" Classes="muted" VerticalAlignment="Center" Margin="2,0" IsVisible="{Binding !IsLast}"/>
@@ -120,6 +143,9 @@
           </Border>
 
           <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+            <TextBlock IsVisible="{Binding HasNoFolders}" Classes="muted" TextWrapping="Wrap" Margin="0,0,0,12"
+                       Text="No folders here yet. Receipts will save in this folder, or use New folder to start sorting."/>
             <ItemsControl ItemsSource="{Binding Tiles}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -128,6 +154,8 @@
                 <DataTemplate x:DataType="vm:FolderTileViewModel">
                   <Button Classes="tile" Classes.target="{Binding IsTarget}"
                           DoubleTapped="OnTileDoubleTapped"
+                          DragDrop.AllowDrop="True" DragDrop.DragEnter="OnFolderDragEnter" DragDrop.DragOver="OnFolderDragOver"
+                          DragDrop.DragLeave="OnFolderDragLeave" DragDrop.Drop="OnFolderDrop"
                           ToolTip.Tip="Click to scan here. Double-click to open."
                           Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).TileClickedCommand}"
                           CommandParameter="{Binding}">
@@ -150,10 +178,33 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-          </ScrollViewer>
 
-          <TextBlock Grid.Row="1" IsVisible="{Binding HasNoFolders}" Classes="muted" TextWrapping="Wrap"
-                     Text="No folders here yet. Receipts will save in this folder, or use New folder to start sorting."/>
+            <TextBlock Classes="heading" Text="{Binding ReceiptsHeading}" Margin="0,8,0,8"/>
+            <TextBlock IsVisible="{Binding HasNoReceipts}" Classes="muted" TextWrapping="Wrap" Text="No receipts saved here yet."/>
+            <ItemsControl ItemsSource="{Binding Receipts}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ReceiptFileViewModel">
+                  <Border Classes="receipt"
+                          ToolTip.Tip="Drag to a folder, File Explorer or an email. Double-click to open."
+                          PointerPressed="OnReceiptPointerPressed" PointerMoved="OnReceiptPointerMoved"
+                          PointerReleased="OnReceiptPointerReleased" DoubleTapped="OnReceiptDoubleTapped">
+                    <Border.ContextMenu>
+                      <ContextMenu>
+                        <MenuItem Header="Open" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).OpenReceiptCommand}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Show in File Explorer" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).ShowReceiptInFileManagerCommand}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Delete" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).DeleteReceiptCommand}" CommandParameter="{Binding}"/>
+                      </ContextMenu>
+                    </Border.ContextMenu>
+                    <StackPanel Spacing="2">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                      <TextBlock Text="{Binding Details}" Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
         </Grid>
 
         <StackPanel Grid.Row="2" Spacing="10" Margin="0,8,0,0">
@@ -219,6 +270,12 @@
             <TextBlock Classes="heading" Text="Latest scan" IsVisible="{Binding !HasLatest}"/>
             <TextBlock Classes="heading" Text="{Binding LatestTitle}" IsVisible="{Binding HasLatest}" TextTrimming="CharacterEllipsis"/>
             <TextBlock Classes="muted" FontSize="12" Text="{Binding LatestDetails}" IsVisible="{Binding HasLatest}"/>
+            <TextBlock Name="LatestPathText" Classes="muted" FontSize="11" Text="{Binding LatestPath}" TextWrapping="Wrap"
+                       IsVisible="{Binding LatestPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+            <StackPanel Spacing="4" IsVisible="{Binding BusyText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <ProgressBar IsIndeterminate="True" MinWidth="0"/>
+              <TextBlock FontSize="12" Text="{Binding BusyText}"/>
+            </StackPanel>
             <TextBlock FontSize="12" Foreground="{DynamicResource OkBrush}" FontWeight="SemiBold" Text="{Binding Notice}" TextWrapping="Wrap"/>
             <Border IsVisible="{Binding NeedsReview}" Background="{DynamicResource WarnBackBrush}"
                     BorderBrush="{DynamicResource WarnLineBrush}" BorderThickness="3,0,0,0" CornerRadius="4" Padding="10,8" Margin="0,6,0,0">
@@ -242,11 +299,12 @@
             </Grid>
           </Border>
 
-          <Grid Grid.Row="2" Margin="0,12,0,0" ColumnDefinitions="*,8,*" RowDefinitions="Auto,8,Auto" IsVisible="{Binding CanUseLatestActions}">
+          <Grid Grid.Row="2" Margin="0,12,0,0" ColumnDefinitions="*,8,*" RowDefinitions="Auto,8,Auto,8,Auto" IsVisible="{Binding ShowLatestActions}" IsEnabled="{Binding !IsProcessing}">
             <Button Grid.Row="0" Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Rotate" Command="{Binding RotateCommand}"/>
             <Button Grid.Row="0" Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Move" Command="{Binding BeginMoveCommand}"/>
             <Button Grid.Row="2" Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Rescan" Command="{Binding RescanCommand}"/>
             <Button Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Delete" Command="{Binding DeleteLatestCommand}"/>
+            <Button Grid.Row="4" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Show in File Explorer" Command="{Binding ShowLatestInFileManagerCommand}"/>
           </Grid>
 
           <Grid Grid.Row="2" Margin="0,12,0,0" ColumnDefinitions="*,8,*" RowDefinitions="Auto,8,Auto" IsVisible="{Binding NeedsReview}">
@@ -300,7 +358,27 @@
             </Grid>
           </StackPanel>
 
+          <StackPanel Spacing="6">
+            <TextBlock FontWeight="SemiBold" Text="Scanner"/>
+            <ComboBox ItemsSource="{Binding ScannerChoices}" SelectedItem="{Binding SelectedScanner}" HorizontalAlignment="Stretch"/>
+            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                       Text="Automatic uses the first supported scanner whose driver is installed. Choose one when more than one is set up."/>
+          </StackPanel>
+
           <CheckBox IsChecked="{Binding TrimBlankSpace}" Content="Trim blank space around receipts"/>
+
+          <StackPanel Spacing="6">
+            <TextBlock FontWeight="SemiBold" Text="Receipt size (optional)"/>
+            <Grid ColumnDefinitions="Auto,*,16,Auto,*">
+              <TextBlock Classes="muted" Text="Width, mm" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBox Grid.Column="1" Name="ExpectedWidthBox" Text="{Binding ExpectedWidthText}" PlaceholderText="Full width"/>
+              <TextBlock Grid.Column="3" Classes="muted" Text="Expected length, mm" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBox Grid.Column="4" Name="ExpectedLengthBox" Text="{Binding ExpectedLengthText}" PlaceholderText="Any"/>
+            </Grid>
+            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                       Text="Scans run until the receipt has fed through, and neither setting ends one early. A scan shorter than the expected length is held for you to check. A narrower width can clip a receipt that isn't straight, and doesn't apply when the driver's dialog is used."/>
+            <TextBlock Foreground="{DynamicResource ErrorLineBrush}" TextWrapping="Wrap" Text="{Binding ScanSizeError}" IsVisible="{Binding ScanSizeError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+          </StackPanel>
 
           <StackPanel Spacing="6">
             <TextBlock FontWeight="SemiBold" Text="Long Paper"/>

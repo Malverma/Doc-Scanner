@@ -84,6 +84,9 @@ public class ScreenshotTests
         Shot("7-move");
         vm.CancelMove();
 
+        vm.TileClicked(vm.Tiles.First(t => t.Name == "Grocery"));
+        Shot("7b-receipt-list");
+
         vm.OpenSettings();
         Shot("8-settings");
         vm.CloseSettings();

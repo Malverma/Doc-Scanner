@@ -10,18 +10,28 @@ public sealed class WorkerBackend(string workerPath, AppLog log) : IScanBackend
 
     public bool IsSimulated => false;
 
+    public string? PreferredScannerId { get; set; }
+
+    public ScannerModel? Model { get; private set; }
+
     public async Task<ScannerStatus> ProbeAsync(CancellationToken cancellationToken = default)
     {
-        ScannerStatus status = new(false, "DS-640 not found");
+        ScannerStatus status = new(false, ScanErrorText.Describe(ScanErrorCode.ScannerNotFound, ScannerModels.FromId(PreferredScannerId)).Title);
         var run = await RunAsync(["probe"], cancellationToken, e =>
         {
             if (e.Type == WorkerEvent.Source)
             {
-                status = new ScannerStatus(true, "DS-640 ready", e.Message);
+                status = new ScannerStatus(true, $"{Model?.Name ?? "Scanner"} ready", e.Message, Model);
             }
             else if (e.Type == WorkerEvent.Error)
             {
-                status = new ScannerStatus(false, ScanErrorText.Describe(e.Code ?? ScanErrorCode.Unknown).Title, e.Message);
+                // With no preference, a scanner that can't be found may not be the one seen last.
+                if (e.Code == ScanErrorCode.ScannerNotFound)
+                {
+                    Model = null;
+                }
+
+                status = new ScannerStatus(false, Describe(e).Title, e.Message);
             }
         });
 
@@ -68,7 +78,7 @@ public sealed class WorkerBackend(string workerPath, AppLog log) : IScanBackend
             }
             else if (e.Type == WorkerEvent.Error)
             {
-                result = new LongPaperSetupResult(false, ScanErrorText.Describe(e.Code ?? ScanErrorCode.Unknown).Title);
+                result = new LongPaperSetupResult(false, Describe(e).Title);
             }
         });
 
@@ -86,12 +96,15 @@ public sealed class WorkerBackend(string workerPath, AppLog log) : IScanBackend
             }
             else if (e.Type == WorkerEvent.Error)
             {
-                result = new DriverCheckResult(false, ScanErrorText.Describe(e.Code ?? ScanErrorCode.Unknown).Title, null);
+                result = new DriverCheckResult(false, Describe(e).Title, null);
             }
         });
 
         return run.StartFailure is null ? result : new DriverCheckResult(false, run.StartFailure, null);
     }
+
+    private ErrorDescription Describe(WorkerEvent e) =>
+        ScanErrorText.Describe(e.Code ?? ScanErrorCode.Unknown, ScannerModels.FromId(PreferredScannerId) ?? Model);
 
     private const string OfflineBeforeData = "offline-before-data";
 
@@ -114,6 +127,16 @@ public sealed class WorkerBackend(string workerPath, AppLog log) : IScanBackend
         if (request.AllowUnconfirmedLongPaper)
         {
             arguments.Add("--allow-unconfirmed");
+        }
+
+        if (request.ExpectedWidthMm is { } width)
+        {
+            arguments.AddRange(["--width-mm", width.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+        }
+
+        if (request.ExpectedLengthMm is { } length)
+        {
+            arguments.AddRange(["--length-mm", length.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
         }
 
         var run = await RunAsync(arguments, cancellationToken, e =>
@@ -181,8 +204,8 @@ public sealed class WorkerBackend(string workerPath, AppLog log) : IScanBackend
             return Fail(ScanErrorCode.IncompleteData, "Scan file doesn't match its reported size");
         }
 
-        log.Info($"Scan complete: {image.Width}x{image.Height}, {image.BytesPerPixel} byte(s) per pixel, {image.Dpi} dpi, {image.HeightMillimeters:0.0} mm");
-        return new ScanOutcome.Completed(image, longPaper);
+        log.Info($"Scan complete: {image.Width}x{image.Height}, {image.BytesPerPixel} byte(s) per pixel, {image.Dpi} dpi, {image.HeightMillimeters:0.0} mm, paper remaining: {complete.PaperRemaining == true}");
+        return new ScanOutcome.Completed(image, longPaper, complete.PaperRemaining == true);
     }
 
     private async Task<WorkerRun> RunAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken, Action<WorkerEvent> onEvent)
@@ -202,6 +225,12 @@ public sealed class WorkerBackend(string workerPath, AppLog log) : IScanBackend
         foreach (var argument in arguments)
         {
             info.ArgumentList.Add(argument);
+        }
+
+        if (ScannerModels.FromId(PreferredScannerId) is { } preferred)
+        {
+            info.ArgumentList.Add("--scanner");
+            info.ArgumentList.Add(preferred.Id);
         }
 
         using var process = new Process { StartInfo = info };
@@ -249,6 +278,10 @@ public sealed class WorkerBackend(string workerPath, AppLog log) : IScanBackend
             if (parsed.Type == WorkerEvent.Log)
             {
                 log.Info($"Worker: {parsed.Message}");
+            }
+            else if (parsed.Type == WorkerEvent.Source)
+            {
+                Model = ScannerModels.FromId(parsed.ScannerId) ?? ScannerModels.FromSourceName(parsed.Message) ?? Model;
             }
 
             onEvent(parsed);

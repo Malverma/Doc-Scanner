@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace ReceiptScanner.TwainWorker;
 
 /// <summary>
-/// Brother's driver state, saved after the user selects Long Paper (spec Option B). The format belongs
+/// The driver's state, saved after the user selects Long Paper (spec Option B). The format belongs
 /// to the driver, so a profile is only valid for the exact driver version that produced it.
 /// </summary>
 internal sealed record LongPaperProfile(string SourceName, string DriverVersion, string DataBase64, DateTimeOffset CapturedAt)

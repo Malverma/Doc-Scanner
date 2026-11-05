@@ -38,6 +38,8 @@ The report's "What changed" section shows which setting controls Long Paper.
 
 If it's complete, the capability method works. Skip to step 7.
 
+If the driver refuses the full 72 in page, the app says Long Paper isn't confirmed. Enter the receipt's length in **Settings > Receipt size > Expected length** and try again, since the app then also accepts a page of that length.
+
 ## 5. Try the saved-settings method
 
 Do this if step 4 jammed or cut the receipt off.
@@ -75,7 +77,20 @@ Also check these, which the test setup couldn't confirm:
 
 - A real paper jam shows this app's message. Brother's driver may show its own dialog first.
 - **Delete** sends a receipt to the Recycle Bin.
+- **Show in File Explorer** opens the folder with the new receipt selected, and the path on screen matches it.
+- **Rotate** on a long receipt: the bar keeps moving and the buttons grey out, then return. If the window stops responding, wait a minute, close it, and send the log. Its `Rotate` lines show how far it got.
+- Dragging a receipt from the list into File Explorer copies it and leaves the original. Dragging onto a folder tile moves it.
+- A receipt pulled out or still in the scanner when the scan ends is held for review, not saved. If every scan is held with a "paper still in the scanner" warning, the driver's paper sensor can't be trusted, so send the log.
 - Trimming suits real scans. The scanner's background may differ from the simulator's, and every scan being held for review would point to this.
+
+## Epson RapidReceipt RR-70W
+
+Run this if you're using the Epson instead of, or as well as, the DS-640. It hasn't been tested against Epson's real driver.
+
+1. Install **Epson Scan 2** and the RR-70W scanner driver from Epson's support site. In Epson Scan 2, scan the long receipt with **Document Size > Auto Detect (Long Paper)** and check you get the whole receipt. If not, stop, as with step 1.
+2. In the app, set **Settings > Scanner** to **Epson RR-70W**. The bottom-left corner should say **RR-70W ready**.
+3. Run steps 3 to 6 above. Where they mention Brother's dialog, use Epson's, and choose **Auto Detect (Long Paper)** as the document size.
+4. If it says not found, send the log. Its `TWAIN sources` line shows the name Epson's driver uses.
 
 ## What to send back
 

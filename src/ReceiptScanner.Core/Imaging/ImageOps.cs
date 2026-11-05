@@ -79,51 +79,76 @@ public static class ImageOps
         Array.Clear(counts);
     }
 
-    /// <summary>Writes a new raw file holding the region turned clockwise by 90 degree steps.</summary>
-    public static RawImage Rotate(RawImage image, PixelRegion region, int quarterTurns, string outputPath)
+    /// <summary>
+    /// Writes a new raw file holding the region turned clockwise by 90 degree steps. It works through a
+    /// band of rows at a time, so a 660 MB scan needs no more memory than a small one.
+    /// </summary>
+    public static RawImage Rotate(RawImage image, PixelRegion region, int quarterTurns, string outputPath, int maxBandBytes = 32 << 20)
     {
         var turns = ((quarterTurns % 4) + 4) % 4;
         var channels = image.BytesPerPixel;
         var newWidth = turns % 2 == 0 ? region.Width : region.Height;
         var newHeight = turns % 2 == 0 ? region.Height : region.Width;
+        var sourceStride = region.Width * channels;
+        var bandRows = Math.Clamp(maxBandBytes / sourceStride, 1, region.Height);
 
-        // The app runs as x64, and the largest possible scan (about 660 MB) fits one array.
-        var source = new byte[checked(region.Width * region.Height * channels)];
-        var row = new byte[image.Width * channels];
-        using (var handle = File.OpenHandle(image.Path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan))
+        var band = new byte[bandRows * sourceStride];
+        var fullRow = new byte[image.Width * channels];
+        var segment = new byte[Math.Max(newWidth, bandRows) * channels];
+
+        using var input = File.OpenHandle(image.Path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan);
+        using var output = File.OpenHandle(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.RandomAccess, (long)newWidth * newHeight * channels);
+
+        for (var bandTop = 0; bandTop < region.Height; bandTop += bandRows)
         {
-            for (var y = 0; y < region.Height; y++)
+            var rows = Math.Min(bandRows, region.Height - bandTop);
+            for (var r = 0; r < rows; r++)
             {
-                ImageAnalysis.ReadRow(handle, image, region.Top + y, row);
-                Buffer.BlockCopy(row, region.Left * channels, source, y * region.Width * channels, region.Width * channels);
+                ImageAnalysis.ReadRow(input, image, region.Top + bandTop + r, fullRow);
+                Buffer.BlockCopy(fullRow, region.Left * channels, band, r * sourceStride, sourceStride);
             }
-        }
 
-        using (var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
-        {
-            var outRow = new byte[newWidth * channels];
-            for (var y = 0; y < newHeight; y++)
+            // Each band fills a run of rows when turning 180 degrees, and a run of columns otherwise.
+            if (turns % 2 == 0)
             {
-                for (var x = 0; x < newWidth; x++)
+                for (var r = 0; r < rows; r++)
                 {
-                    var (sx, sy) = turns switch
+                    var targetY = turns == 0 ? bandTop + r : region.Height - 1 - bandTop - r;
+                    for (var x = 0; x < region.Width; x++)
                     {
-                        1 => (y, region.Height - 1 - x),
-                        2 => (region.Width - 1 - x, region.Height - 1 - y),
-                        3 => (region.Width - 1 - y, x),
-                        _ => (x, y),
-                    };
-                    var from = ((sy * region.Width) + sx) * channels;
-                    for (var c = 0; c < channels; c++)
-                    {
-                        outRow[(x * channels) + c] = source[from + c];
+                        var sx = turns == 0 ? x : region.Width - 1 - x;
+                        CopyPixel(band, (r * sourceStride) + (sx * channels), segment, x * channels, channels);
                     }
-                }
 
-                output.Write(outRow);
+                    RandomAccess.Write(output, segment.AsSpan(0, sourceStride), (long)targetY * newWidth * channels);
+                }
+            }
+            else
+            {
+                // Clockwise, the last source row becomes the first column. Counter-clockwise, the first does.
+                var firstColumn = turns == 1 ? region.Height - bandTop - rows : bandTop;
+                for (var y = 0; y < newHeight; y++)
+                {
+                    var sx = turns == 1 ? y : region.Width - 1 - y;
+                    for (var i = 0; i < rows; i++)
+                    {
+                        var r = turns == 1 ? rows - 1 - i : i;
+                        CopyPixel(band, (r * sourceStride) + (sx * channels), segment, i * channels, channels);
+                    }
+
+                    RandomAccess.Write(output, segment.AsSpan(0, rows * channels), (((long)y * newWidth) + firstColumn) * channels);
+                }
             }
         }
 
         return image with { Path = outputPath, Width = newWidth, Height = newHeight };
+    }
+
+    private static void CopyPixel(byte[] from, int fromIndex, byte[] to, int toIndex, int channels)
+    {
+        for (var c = 0; c < channels; c++)
+        {
+            to[toIndex + c] = from[fromIndex + c];
+        }
     }
 }

@@ -1,4 +1,9 @@
+using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Input.Raw;
+using Avalonia.VisualTree;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using ReceiptScanner.App.ViewModels;
@@ -17,6 +22,10 @@ public sealed class FakePlatform : IPlatformActions
     public Task<string?> PickFolderAsync(string? startFolder) => Task.FromResult(PickResult);
 
     public void OpenInFileManager(string folder) => Opened = folder;
+
+    public void ShowFile(string path) => Opened = path;
+
+    public void OpenFile(string path) => Opened = path;
 }
 
 public class MainViewModelTests
@@ -58,6 +67,244 @@ public class MainViewModelTests
         public FolderTileViewModel Tile(string name) => Vm.Tiles.First(t => t.Name == name);
 
         public void Dispose() => _dir.Dispose();
+    }
+
+    [AvaloniaFact]
+    public async Task Saved_scan_is_a_real_file_shown_by_path_and_in_the_list()
+    {
+        using var rig = new Rig();
+        rig.Vm.TileClicked(rig.Tile("Grocery"));
+
+        await rig.Vm.ScanAsync();
+
+        var path = Assert.Single(Directory.GetFiles(Path.Combine(rig.Base, "Grocery")));
+        Assert.True(new FileInfo(path).Length > 0);
+        Assert.Equal(path, rig.Vm.LatestPath);
+        Assert.Equal(path, Assert.Single(Assert.Single(rig.Vm.Receipts).Files));
+        Assert.Equal("Receipts in Grocery", rig.Vm.ReceiptsHeading);
+
+        rig.Vm.ShowLatestInFileManager();
+
+        Assert.Equal(path, rig.Platform.Opened);
+    }
+
+    [AvaloniaFact]
+    public async Task List_follows_the_selected_folder()
+    {
+        using var rig = new Rig();
+        rig.Vm.TileClicked(rig.Tile("Grocery"));
+        await rig.Vm.ScanAsync();
+
+        rig.Vm.TileClicked(rig.Tile("Gas"));
+
+        Assert.Empty(rig.Vm.Receipts);
+        Assert.True(rig.Vm.HasNoReceipts);
+
+        rig.Vm.TileClicked(rig.Tile("Grocery"));
+
+        Assert.Single(rig.Vm.Receipts);
+        Assert.False(rig.Vm.HasNoReceipts);
+    }
+
+    [AvaloniaFact]
+    public async Task Moving_the_latest_receipt_from_the_list_keeps_rotate_on_the_moved_file()
+    {
+        using var rig = new Rig();
+        rig.Vm.TileClicked(rig.Tile("Grocery"));
+        await rig.Vm.ScanAsync();
+
+        rig.Vm.MoveReceiptTo(rig.Vm.Receipts[0], Path.Combine(rig.Base, "Gas"));
+
+        Assert.Empty(rig.Receipts("Grocery"));
+        Assert.Single(rig.Receipts("Gas"));
+        Assert.Contains("Gas", rig.Vm.LatestPath, StringComparison.Ordinal);
+
+        await rig.Vm.RotateAsync();
+
+        Assert.Empty(rig.Receipts("Grocery"));
+        Assert.Single(rig.Receipts("Gas"));
+    }
+
+    [AvaloniaFact]
+    public async Task Rotate_keeps_the_buttons_on_screen_and_clears_its_status()
+    {
+        using var rig = new Rig();
+        await rig.Vm.ScanAsync();
+        var seen = new List<string>();
+        rig.Vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.BusyText) && rig.Vm.BusyText.Length > 0)
+            {
+                seen.Add(rig.Vm.BusyText);
+                Assert.True(rig.Vm.ShowLatestActions);
+            }
+        };
+
+        await rig.Vm.RotateAsync();
+
+        Assert.Equal(["Rotating", "Saving the rotated receipt"], seen);
+        Assert.Empty(rig.Vm.BusyText);
+        Assert.True(rig.Vm.CanUseLatestActions);
+        Assert.Contains("Rotate finished", ReadLog(rig), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task Failed_rotate_leaves_the_receipt_and_preview_alone()
+    {
+        using var rig = new Rig();
+        await rig.Vm.ScanAsync();
+        var file = Assert.Single(Directory.GetFiles(rig.Base));
+        var before = await File.ReadAllBytesAsync(file);
+        var preview = rig.Vm.PreviewImage;
+        var details = rig.Vm.LatestDetails;
+
+        // Holding the output blocks the replace on Windows. Removing the folder blocks it everywhere.
+        var hidden = rig.Base + "-hidden";
+        Directory.Move(rig.Base, hidden);
+        await rig.Vm.RotateAsync();
+        Directory.Move(hidden, rig.Base);
+
+        Assert.Contains("unchanged", rig.Vm.Notice, StringComparison.Ordinal);
+        Assert.Same(preview, rig.Vm.PreviewImage);
+        Assert.Equal(details, rig.Vm.LatestDetails);
+        Assert.Equal(before, await File.ReadAllBytesAsync(file));
+        Assert.False(rig.Vm.IsProcessing);
+        Assert.Empty(rig.Vm.BusyText);
+    }
+
+    [AvaloniaFact]
+    public async Task Deleting_the_latest_receipt_from_the_list_clears_the_panel()
+    {
+        using var rig = new Rig();
+        await rig.Vm.ScanAsync();
+
+        rig.Vm.DeleteReceipt(rig.Vm.Receipts[0]);
+
+        Assert.Empty(rig.Receipts());
+        Assert.False(rig.Vm.HasLatest);
+        Assert.Empty(rig.Vm.Receipts);
+    }
+
+    [AvaloniaFact]
+    public async Task Clicking_the_real_rotate_button_finishes_and_the_window_responds()
+    {
+        using var rig = new Rig();
+        var window = new MainWindow { DataContext = rig.Vm, Width = 1040, Height = 680 };
+        window.Show();
+        await rig.Vm.ScanAsync();
+        Dispatcher.UIThread.RunJobs();
+        var before = rig.Vm.LatestDetails;
+
+        var button = window.GetVisualDescendants().OfType<Button>().First(b => b.Content as string == "Rotate" && b.IsEffectivelyVisible);
+        var center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+        window.MouseDown(center, MouseButton.Left);
+        window.MouseUp(center, MouseButton.Left);
+
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while ((rig.Vm.IsProcessing || rig.Vm.LatestDetails == before) && DateTime.UtcNow < deadline)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.False(rig.Vm.IsProcessing);
+        Assert.NotEqual(before, rig.Vm.LatestDetails);
+        Assert.True(button.IsEffectivelyVisible);
+        Assert.True(button.IsEffectivelyEnabled);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Dragging_a_receipt_row_onto_a_folder_tile_moves_it()
+    {
+        using var rig = new Rig();
+        rig.Vm.TileClicked(rig.Tile("Grocery"));
+        await rig.Vm.ScanAsync();
+        var window = new MainWindow { DataContext = rig.Vm, Width = 1040, Height = 680 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Point CenterOf(Visual visual) => visual.TranslatePoint(new Point(visual.Bounds.Width / 2, visual.Bounds.Height / 2), window)!.Value;
+        var row = window.GetVisualDescendants().OfType<Border>().First(b => b.Classes.Contains("receipt"));
+        var tile = window.GetVisualDescendants().OfType<Button>().First(b => b.DataContext is FolderTileViewModel { Name: "Gas" });
+
+        window.MouseDown(CenterOf(row), MouseButton.Left);
+        window.MouseMove(CenterOf(row) + new Point(30, 0), RawInputModifiers.LeftMouseButton);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        Dispatcher.UIThread.RunJobs();
+
+        window.MouseMove(CenterOf(tile), RawInputModifiers.LeftMouseButton);
+        Dispatcher.UIThread.RunJobs();
+        window.MouseUp(CenterOf(tile), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Single(rig.Receipts("Gas"));
+        Assert.Empty(rig.Receipts("Grocery"));
+        window.Close();
+    }
+
+    private static string ReadLog(Rig rig)
+    {
+        using var stream = new FileStream(Directory.GetFiles(rig.Paths.LogFolder).Single(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    [AvaloniaFact]
+    public async Task Scan_ending_with_paper_left_is_held_and_not_saved()
+    {
+        using var rig = new Rig(SimulatedBehavior.PaperLeft);
+
+        await rig.Vm.ScanAsync();
+
+        Assert.True(rig.Vm.NeedsReview);
+        Assert.Empty(rig.Receipts());
+        Assert.Contains(rig.Vm.Warnings, w => w.Contains("still in the scanner", StringComparison.Ordinal));
+    }
+
+    [AvaloniaFact]
+    public async Task Scan_shorter_than_the_expected_length_is_held_and_not_saved()
+    {
+        using var rig = new Rig(lengthMm: 300);
+        rig.Vm.ExpectedLengthText = "400";
+
+        await rig.Vm.ScanAsync();
+
+        Assert.True(rig.Vm.NeedsReview);
+        Assert.Empty(rig.Receipts());
+    }
+
+    [AvaloniaFact]
+    public async Task Scan_longer_than_the_expected_length_saves_whole()
+    {
+        using var rig = new Rig(lengthMm: 300);
+        rig.Vm.ExpectedLengthText = "100";
+
+        await rig.Vm.ScanAsync();
+
+        Assert.False(rig.Vm.NeedsReview);
+        Assert.Single(rig.Receipts());
+    }
+
+    [AvaloniaTheory]
+    [InlineData("10")]
+    [InlineData("abc")]
+    [InlineData("3000")]
+    public void Bad_scan_size_shows_an_error_and_keeps_the_last_good_value(string bad)
+    {
+        using var rig = new Rig();
+        rig.Vm.ExpectedLengthText = "400";
+        Assert.Empty(rig.Vm.ScanSizeError);
+
+        rig.Vm.ExpectedLengthText = bad;
+
+        Assert.NotEmpty(rig.Vm.ScanSizeError);
+        Assert.Equal(400, AppSettings.Load(rig.Paths.SettingsFile, rig.Base).ExpectedLengthMm);
+
+        rig.Vm.ExpectedLengthText = "";
+
+        Assert.Empty(rig.Vm.ScanSizeError);
+        Assert.Null(AppSettings.Load(rig.Paths.SettingsFile, rig.Base).ExpectedLengthMm);
     }
 
     [AvaloniaFact]

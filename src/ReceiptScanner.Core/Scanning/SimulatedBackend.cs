@@ -9,6 +9,7 @@ public enum SimulatedBehavior
     OverLength,
     Unconfirmed,
     Stall,
+    PaperLeft,
 }
 
 /// <summary>
@@ -25,8 +26,12 @@ public sealed class SimulatedBackend(SimulatedBehavior behavior = SimulatedBehav
 
     public bool IsSimulated => true;
 
+    public string? PreferredScannerId { get; set; }
+
+    public ScannerModel? Model => ScannerModels.FromId(PreferredScannerId) ?? ScannerModels.All[0];
+
     public Task<ScannerStatus> ProbeAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ScannerStatus(true, "Simulated DS-640"));
+        Task.FromResult(new ScannerStatus(true, $"Simulated {Model!.Name}", null, Model));
 
     public async Task<ScanOutcome> ScanAsync(ScanRequest request, IProgress<ScanProgress> progress, CancellationToken cancellationToken)
     {
@@ -95,7 +100,7 @@ public sealed class SimulatedBackend(SimulatedBehavior behavior = SimulatedBehav
         }
 
         progress.Report(new ScanProgress(height, request.Dpi, true));
-        return new ScanOutcome.Completed(new RawImage(request.RawOutputPath, width, height, channels, request.Dpi), status);
+        return new ScanOutcome.Completed(new RawImage(request.RawOutputPath, width, height, channels, request.Dpi), status, Behavior == SimulatedBehavior.PaperLeft);
     }
 
     public Task<LongPaperSetupResult> SetupLongPaperAsync(string profilePath, CancellationToken cancellationToken = default)

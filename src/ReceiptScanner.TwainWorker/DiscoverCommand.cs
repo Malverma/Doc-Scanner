@@ -15,18 +15,19 @@ internal static class DiscoverCommand
     private const int CustomCapFirst = 0x8000;
     private const int CustomCapLast = 0x8FFF;
 
-    public static int Run(string reportPath)
+    public static int Run(string reportPath, string? scannerId)
     {
         var report = new StringBuilder();
         void Line(string text = "") => report.Append(text).Append('\n');
 
-        using var host = TwainSessionHost.Open();
+        using var host = TwainSessionHost.Open(scannerId);
         var source = host.Source;
 
         Line("# TWAIN capability report");
         Line();
         Line(string.Create(CultureInfo.InvariantCulture, $"- Generated: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}"));
         Line($"- Source: {source.Name}");
+        Line($"- Recognized as: {host.Model.DisplayName}");
         Line($"- Manufacturer: {source.Manufacturer}");
         Line($"- Product family: {source.ProductFamily}");
         Line($"- Driver version: {host.DriverVersion}");
@@ -40,10 +41,10 @@ internal static class DiscoverCommand
         var settingsBefore = source.Settings;
         var frameBefore = LongPaperConfigurator.ReadFrameHeight(source);
 
-        Output.Log("Opening Brother's dialog. Select Document Size > Long Paper, then click OK.");
+        Output.Log($"Opening {host.Model.Maker}'s dialog. In it, {host.Model.LongPaperSetting}, then click OK.");
         var opened = DialogRunner.ShowSettingsDialog(host, out var accepted);
 
-        Line("## Brother dialog");
+        Line($"## {host.Model.Maker} dialog");
         Line();
         Line($"- Opened settings-only dialog: {opened}");
         Line($"- User clicked OK: {accepted}");

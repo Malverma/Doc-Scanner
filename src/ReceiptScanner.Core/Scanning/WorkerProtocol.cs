@@ -28,6 +28,10 @@ public sealed class WorkerEvent
     public string? Evidence { get; set; }
     public double? FrameHeightInches { get; set; }
     public bool? Success { get; set; }
+    public bool? PaperRemaining { get; set; }
+
+    /// <summary>On a source event: the <see cref="ScannerModel.Id"/> the worker opened.</summary>
+    public string? ScannerId { get; set; }
 }
 
 public static class WorkerProtocol

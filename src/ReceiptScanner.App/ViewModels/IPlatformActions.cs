@@ -6,4 +6,9 @@ public interface IPlatformActions
     Task<string?> PickFolderAsync(string? startFolder);
 
     void OpenInFileManager(string folder);
+
+    /// <summary>Opens the folder holding a file, with the file selected where the platform can do that.</summary>
+    void ShowFile(string path);
+
+    void OpenFile(string path);
 }

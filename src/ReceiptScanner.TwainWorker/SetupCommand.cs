@@ -4,21 +4,22 @@ using ReceiptScanner.Core.Scanning;
 
 namespace ReceiptScanner.TwainWorker;
 
-/// <summary>Spec Option B: the user selects Long Paper in Brother's dialog, then the driver state is saved.</summary>
+/// <summary>Spec Option B: the user selects long paper in the driver's dialog, then the driver state is saved.</summary>
 internal static class SetupCommand
 {
-    public static int Run(string profilePath)
+    public static int Run(string profilePath, string? scannerId)
     {
-        using var host = TwainSessionHost.Open();
+        using var host = TwainSessionHost.Open(scannerId);
+        var maker = host.Model.Maker;
         if (!LongPaperConfigurator.CustomDataSupported(host.Source))
         {
-            Result(false, "This driver doesn't support saved settings. Use Brother's dialog for each scan instead.");
+            Result(false, $"This driver doesn't support saved settings. Use {maker}'s dialog for each scan instead.");
             return 1;
         }
 
         if (!DialogRunner.ShowSettingsDialog(host, out var accepted))
         {
-            Result(false, "Brother's driver can't open its settings on their own here. Use Brother's dialog for each scan instead.");
+            Result(false, $"{maker}'s driver can't open its settings on their own here. Use {maker}'s dialog for each scan instead.");
             return 1;
         }
 

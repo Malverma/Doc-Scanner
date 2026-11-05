@@ -23,4 +23,21 @@ public sealed class DesktopActions(Window window) : IPlatformActions
     {
         Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true })?.Dispose();
     }
+
+    public void ShowFile(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Explorer needs the quotes inside this one argument, so ArgumentList can't be used.
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = false })?.Dispose();
+            return;
+        }
+
+        OpenInFileManager(Path.GetDirectoryName(path)!);
+    }
+
+    public void OpenFile(string path)
+    {
+        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true })?.Dispose();
+    }
 }

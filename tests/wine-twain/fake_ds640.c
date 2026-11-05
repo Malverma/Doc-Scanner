@@ -81,6 +81,7 @@ static CAP caps[] = {
     { 0x100B, TW_BOOL, 1, 0 },        /* CAP_INDICATORS */
     { 0x1015, TW_BOOL, 1, 1 },        /* CAP_CUSTOMDSDATA */
     { 0x1019, TW_BOOL, 1, 1 },        /* CAP_ENABLEDSUIONLY */
+    { 0x102D, TW_UINT16, 1, 0 },      /* CAP_FEEDERALIGNMENT: left */
     { 0x1118, TW_FIX32, 200, 0 },     /* ICAP_XRESOLUTION */
     { 0x1119, TW_FIX32, 200, 0 },     /* ICAP_YRESOLUTION */
     { 0x111F, TW_UINT16, 0, 0 },      /* ICAP_PIXELFLAVOR */
@@ -151,7 +152,10 @@ static uint16_t handle_cap(CAPABILITY *c, uint16_t msg) {
     if (!cap) { status = CC_CAPUNSUPPORTED; return RC_FAILURE; }
 
     /* "unconfirmed" models a driver that refuses every route to Long Paper. */
-    if (mode_is("unconfirmed") && msg == MSG_SET && c->Cap == 0x112D) { status = CC_BADVALUE; return RC_FAILURE; }
+    if ((mode_is("unconfirmed") || mode_is("reject72")) && msg == MSG_SET && c->Cap == 0x112D) { status = CC_BADVALUE; return RC_FAILURE; }
+
+    /* "resetframe" models a driver that returns to its default page when the resolution changes. */
+    if (mode_is("resetframe") && msg == MSG_SET && c->Cap == 0x1118) frame.Bottom.Whole = 14;
 
     switch (msg) {
     case MSG_GET: case MSG_GETCURRENT: case MSG_GETDEFAULT:
@@ -224,7 +228,12 @@ static uint16_t handle_memxfer(IMAGEMEMXFER *m) {
     m->YOffset = (uint32_t)row;
     m->BytesWritten = rows * s;
     row += (int)rows;
-    if (row >= total) { xferDone = 1; return RC_XFERDONE; }
+    if (row >= total) {
+        xferDone = 1;
+        /* "paperleft" and "twopages" end the transfer with the receipt still in the feeder. */
+        if (!mode_is("paperleft") && !mode_is("twopages")) find_cap(0x1003)->value = 0;
+        return RC_XFERDONE;
+    }
     return RC_SUCCESS;
 }
 
@@ -242,7 +251,11 @@ __declspec(dllexport) uint16_t WINAPI DS_Entry(IDENTITY *origin, uint32_t dg, ui
                 id->SupportedGroups = 3;
                 copy_str(id->Manufacturer, "Fake");
                 copy_str(id->ProductFamily, "Fake");
-                copy_str(id->ProductName, "TW-Brother DS-640");
+                {
+                    /* FAKE_DS_NAME lets the tests pose as another model, such as the Epson RR-70W. */
+                    char name[34];
+                    copy_str(id->ProductName, GetEnvironmentVariableA("FAKE_DS_NAME", name, sizeof name) ? name : "TW-Brother DS-640");
+                }
                 return RC_SUCCESS;
             }
             if (msg == MSG_OPENDS) {
@@ -251,6 +264,7 @@ __declspec(dllexport) uint16_t WINAPI DS_Entry(IDENTITY *origin, uint32_t dg, ui
                 self = *id;
                 appIdentity = origin;
                 if (mode_is("vanilla")) find_cap(0x111F)->value = 1;
+                if (mode_is("centered")) find_cap(0x102D)->value = 2;
                 if (mode_is("noopen")) { status = CC_CHECKDEVICEONLINE; return RC_FAILURE; }
                 return RC_SUCCESS;
             }
@@ -319,7 +333,7 @@ __declspec(dllexport) uint16_t WINAPI DS_Entry(IDENTITY *origin, uint32_t dg, ui
                 uint32_t *p = GlobalLock(c->hData);
                 customData = *p;
                 GlobalUnlock(c->hData);
-                if (customData == 0x22222222) { find_cap(0x112D)->value = 1; }
+                if (customData == 0x22222222) { find_cap(0x112D)->value = 1; frame.Bottom.Whole = 72; }
                 return RC_SUCCESS;
             }
             break;
@@ -335,6 +349,7 @@ __declspec(dllexport) uint16_t WINAPI DS_Entry(IDENTITY *origin, uint32_t dg, ui
                 return RC_SUCCESS;
             }
             if (msg == MSG_SET) {
+                if (mode_is("reject72") && l->Frame.Bottom.Whole > 40) { status = CC_BADVALUE; return RC_FAILURE; }
                 if (mode_is("clamp") || mode_is("unconfirmed")) { /* clamp to 14 in, as Linux's driver limit does */
                     if (l->Frame.Bottom.Whole > 14) l->Frame.Bottom.Whole = 14;
                 }

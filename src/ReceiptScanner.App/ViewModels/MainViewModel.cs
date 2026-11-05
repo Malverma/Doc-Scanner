@@ -45,6 +45,7 @@ public partial class MainViewModel : ObservableObject
         _settings = settings;
         _platform = platform;
         _stallThreshold = stallThreshold ?? DefaultStallThreshold;
+        _backend.PreferredScannerId = settings.Scanner;
 
         Directory.CreateDirectory(settings.BaseFolder);
         _folders = new FolderService(settings.BaseFolder);
@@ -53,7 +54,11 @@ public partial class MainViewModel : ObservableObject
         _selectedColor = ColorChoices.First(c => c.Value == settings.Color);
         _selectedFormat = FormatChoices.First(c => c.Value == settings.Format);
         _selectedLongPaperMethod = LongPaperChoices.First(c => c.Value == settings.LongPaper);
+        ScannerChoices = [new("Automatic", null), .. ScannerModels.All.Select(m => new Choice<string?>(m.DisplayName, m.Id))];
+        _selectedScanner = ScannerChoices.First(c => c.Value == settings.Scanner);
         _trimBlankSpace = settings.TrimBlankSpace;
+        _expectedWidthText = FormatMm(settings.ExpectedWidthMm);
+        _expectedLengthText = FormatMm(settings.ExpectedLengthMm);
         _baseFolder = _folders.BaseFolder;
 
         var target = settings.TargetFolder;
@@ -83,12 +88,16 @@ public partial class MainViewModel : ObservableObject
     public IReadOnlyList<Choice<LongPaperStrategy>> LongPaperChoices { get; } =
     [
         new("Automatic", LongPaperStrategy.Auto),
-        new("Brother's dialog on every scan", LongPaperStrategy.BrotherDialog),
+        new("Scanner driver's dialog on every scan", LongPaperStrategy.BrotherDialog),
     ];
+
+    public IReadOnlyList<Choice<string?>> ScannerChoices { get; }
 
     public ObservableCollection<FolderTileViewModel> Tiles { get; } = [];
 
     public ObservableCollection<BreadcrumbViewModel> Breadcrumbs { get; } = [];
+
+    public ObservableCollection<ReceiptFileViewModel> Receipts { get; } = [];
 
     public ObservableCollection<string> ErrorSteps { get; } = [];
 
@@ -98,12 +107,18 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private Choice<ColorMode> _selectedColor;
     [ObservableProperty] private Choice<OutputFormat> _selectedFormat;
     [ObservableProperty] private Choice<LongPaperStrategy> _selectedLongPaperMethod;
+    [ObservableProperty] private Choice<string?> _selectedScanner;
     [ObservableProperty] private bool _trimBlankSpace;
     [ObservableProperty] private string _baseFolder;
+    [ObservableProperty] private string _expectedWidthText;
+    [ObservableProperty] private string _expectedLengthText;
+    [ObservableProperty] private string _scanSizeError = "";
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ScanButtonText))] private string _targetFolder;
     [ObservableProperty] private string _currentFolder;
     [ObservableProperty] private bool _hasNoFolders;
+    [ObservableProperty] private bool _hasNoReceipts;
+    [ObservableProperty] private string _receiptsHeading = "";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanScan))]
@@ -118,6 +133,8 @@ public partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ScanButtonText))]
     private bool _isProcessing;
 
+    [ObservableProperty] private string _busyText = "";
+
     [ObservableProperty] private string _progressText = "";
     [ObservableProperty] private bool _showStopWaiting;
 
@@ -129,16 +146,19 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanUseLatestActions))]
+    [NotifyPropertyChangedFor(nameof(ShowLatestActions))]
     private bool _hasLatest;
 
     [ObservableProperty] private Bitmap? _previewImage;
     [ObservableProperty] private string _latestTitle = "";
     [ObservableProperty] private string _latestDetails = "";
+    [ObservableProperty] private string _latestPath = "";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanScan))]
     [NotifyPropertyChangedFor(nameof(IsIdleHintVisible))]
     [NotifyPropertyChangedFor(nameof(CanUseLatestActions))]
+    [NotifyPropertyChangedFor(nameof(ShowLatestActions))]
     private bool _needsReview;
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanScan))] private bool _isMoving;
@@ -161,6 +181,9 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>Rotate, Move, Rescan and Delete apply once a scan has been saved.</summary>
     public bool CanUseLatestActions => HasLatest && !IsProcessing && !NeedsReview;
+
+    /// <summary>The buttons stay on screen, disabled, during work, so the window doesn't look broken.</summary>
+    public bool ShowLatestActions => HasLatest && !NeedsReview;
 
     public string TargetName => _folders.Breadcrumb(TargetFolder)[^1].Name;
 
@@ -190,11 +213,76 @@ public partial class MainViewModel : ObservableObject
         SaveSettings();
     }
 
+    partial void OnSelectedScannerChanged(Choice<string?> value)
+    {
+        _settings.Scanner = value.Value;
+        _backend.PreferredScannerId = value.Value;
+        SaveSettings();
+        _ = ProbeScannerCommand.ExecuteAsync(null);
+    }
+
+    /// <summary>The scanner the next operation will use, as far as the app knows.</summary>
+    private ScannerModel? CurrentModel => ScannerModels.FromId(_backend.PreferredScannerId) ?? _backend.Model;
+
+    private string LongPaperInstruction => CurrentModel is { } model
+        ? $"Follow {model.Maker}'s dialog: {model.LongPaperSetting}, then click OK."
+        : "Follow the scanner driver's dialog: choose the long paper document size, then click OK.";
+
     partial void OnTrimBlankSpaceChanged(bool value)
     {
         _settings.TrimBlankSpace = value;
         SaveSettings();
     }
+
+    partial void OnExpectedWidthTextChanged(string value) => ApplyScanSize();
+
+    partial void OnExpectedLengthTextChanged(string value) => ApplyScanSize();
+
+    /// <summary>Bad text is reported and ignored, so a half-typed number can't affect a scan.</summary>
+    private void ApplyScanSize()
+    {
+        var widthOk = TryParseMm(ExpectedWidthText, AppSettings.MinScanWidthMm, AppSettings.MaxScanWidthMm, out var width);
+        var lengthOk = TryParseMm(ExpectedLengthText, AppSettings.MinExpectedLengthMm, AppSettings.MaxExpectedLengthMm, out var length);
+        ScanSizeError = (widthOk, lengthOk) switch
+        {
+            (false, _) => $"Enter a width from {AppSettings.MinScanWidthMm:0} to {AppSettings.MaxScanWidthMm:0.#} mm, or leave it blank.",
+            (_, false) => $"Enter a length from {AppSettings.MinExpectedLengthMm:0} to {AppSettings.MaxExpectedLengthMm:0.#} mm, or leave it blank.",
+            _ => "",
+        };
+
+        if (widthOk)
+        {
+            _settings.ExpectedWidthMm = width;
+        }
+
+        if (lengthOk)
+        {
+            _settings.ExpectedLengthMm = length;
+        }
+
+        SaveSettings();
+    }
+
+    private static bool TryParseMm(string? text, double min, double max, out double? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return true;
+        }
+
+        if (double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var parsed)
+            && parsed >= min && parsed <= max)
+        {
+            value = parsed;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string FormatMm(double? value) =>
+        value?.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture) ?? "";
 
     /// <summary>Checks for the scanner now, then keeps checking only while it's missing.</summary>
     public async Task MonitorScannerAsync(CancellationToken cancellationToken)
@@ -293,6 +381,11 @@ public partial class MainViewModel : ObservableObject
         using var watchDone = new CancellationTokenSource();
         var watch = WatchForStallAsync(() => lastActivity, watchDone.Token);
 
+        // Settings can be opened during a scan, so its checks use the values it started with.
+        var expectedWidth = _settings.ExpectedWidthMm;
+        var expectedLength = _settings.ExpectedLengthMm;
+        var strategy = SelectedLongPaperMethod.Value;
+
         ScanOutcome outcome;
         await _scannerGate.WaitAsync();
         try
@@ -301,10 +394,12 @@ public partial class MainViewModel : ObservableObject
                 SelectedDpi,
                 SelectedColor.Value,
                 rawPath,
-                SelectedLongPaperMethod.Value,
+                strategy,
                 _paths.LongPaperProfile,
-                allowUnconfirmed);
-            _log.Info($"Scan started: {request.Dpi} dpi, {request.Color}, method {request.Strategy}, allow unconfirmed: {allowUnconfirmed}");
+                allowUnconfirmed,
+                expectedWidth,
+                expectedLength);
+            _log.Info($"Scan started: {request.Dpi} dpi, {request.Color}, method {request.Strategy}, allow unconfirmed: {allowUnconfirmed}, expected width: {expectedWidth?.ToString() ?? "none"} mm, expected length: {expectedLength?.ToString() ?? "none"} mm");
             outcome = await _backend.ScanAsync(request, progress, _stopWaiting.Token);
         }
         catch (Exception ex)
@@ -332,8 +427,12 @@ public partial class MainViewModel : ObservableObject
         }
 
         ScannerFound = true;
-        ScannerStatus = _backend.IsSimulated ? "Simulated DS-640" : "DS-640 ready";
-        await ProcessAsync((ScanOutcome.Completed)outcome, folder, startedAt);
+        var name = CurrentModel?.Name ?? "Scanner";
+        ScannerStatus = _backend.IsSimulated ? $"Simulated {name}" : $"{name} ready";
+
+        // The driver's dialog decides the frame itself, so the width setting isn't applied there.
+        var widthLimited = expectedWidth is not null && strategy != LongPaperStrategy.BrotherDialog && _backend.AppliesScanWidth;
+        await ProcessAsync((ScanOutcome.Completed)outcome, folder, startedAt, expectedLength, widthLimited);
     }
 
     private async Task WatchForStallAsync(Func<DateTime> lastActivity, CancellationToken cancellationToken)
@@ -358,7 +457,7 @@ public partial class MainViewModel : ObservableObject
 
     private void ReportFailure(ScanOutcome.Failed failed)
     {
-        var description = ScanErrorText.Describe(failed.Code);
+        var description = ScanErrorText.Describe(failed.Code, CurrentModel);
         _log.Error($"Scan failed: {failed.Code}; detail: {failed.Detail}; Long Paper: {failed.LongPaper?.Method} confirmed {failed.LongPaper?.Confirmed}");
         ErrorTitle = description.Title;
         ErrorSteps.Clear();
@@ -376,7 +475,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private async Task ProcessAsync(ScanOutcome.Completed completed, string folder, DateTime timestamp)
+    private async Task ProcessAsync(ScanOutcome.Completed completed, string folder, DateTime timestamp, double? expectedLengthMm, bool widthLimited)
     {
         IsProcessing = true;
         ClearLatest();
@@ -393,7 +492,7 @@ public partial class MainViewModel : ObservableObject
                 }
 
                 var analysis = ImageAnalysis.Analyze(image);
-                var assessment = Completeness.Assess(image, analysis, completed.Status);
+                var assessment = Completeness.Assess(image, analysis, completed.Status, completed.PaperRemaining, expectedLengthMm, widthLimited);
                 var region = trim ? analysis.TrimRegion : PixelRegion.Full(image);
                 var preview = ImageOps.BuildPreview(image, region, PreviewWidth);
                 SavedReceipt? saved = assessment.IsClean ? ReceiptStore.Save(image, region, folder, format, timestamp) : null;
@@ -416,6 +515,7 @@ public partial class MainViewModel : ObservableObject
             }
             else
             {
+                    LogSaved(result.saved);
                 Notice = $"Saved to {TargetNameOf(folder)}";
                 Refresh();
             }
@@ -469,6 +569,7 @@ public partial class MainViewModel : ObservableObject
             var saved = await Task.Run(() => ReceiptStore.Save(latest.Image, latest.Region, TargetFolder, SelectedFormat.Value, latest.Timestamp, unverified));
             latest.Saved = saved;
             latest.Format = SelectedFormat.Value;
+            LogSaved(saved);
             NeedsReview = false;
             Warnings.Clear();
             UpdateLatestText();
@@ -503,31 +604,49 @@ public partial class MainViewModel : ObservableObject
         }
 
         IsProcessing = true;
+        BusyText = "Rotating";
+        Notice = "";
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var newPath = _paths.NewRawPath();
+        var previousPreview = PreviewImage;
+        _log.Info($"Rotate started: {latest.Region.Width}x{latest.Region.Height} px, saved: {latest.Saved is not null}");
         try
         {
-            var newPath = _paths.NewRawPath();
-            var (rotated, preview, saved) = await Task.Run(() =>
+            var (rotated, preview) = await Task.Run(() =>
             {
                 var image = ImageOps.Rotate(latest.Image, latest.Region, 1, newPath);
-                var region = PixelRegion.Full(image);
-                var receipt = latest.Saved is null ? null : ReceiptStore.Replace(image, region, latest.Saved, latest.Format);
-                return (image, ImageOps.BuildPreview(image, region, PreviewWidth), receipt);
+                return (image, ImageOps.BuildPreview(image, PixelRegion.Full(image), PreviewWidth));
             });
+            _log.Info($"Rotate: image turned after {clock.ElapsedMilliseconds} ms");
+
+            // The rotated preview shows first, since rewriting a long receipt's file can take a while.
+            PreviewImage = ToBitmap(preview);
+            _log.Info($"Rotate: preview shown after {clock.ElapsedMilliseconds} ms");
+
+            if (latest.Saved is { } existing)
+            {
+                BusyText = "Saving the rotated receipt";
+                latest.Saved = await Task.Run(() => ReceiptStore.Replace(rotated, PixelRegion.Full(rotated), existing, latest.Format));
+                LogSaved(latest.Saved);
+            }
 
             TryDelete(latest.Image.Path);
             latest.Image = rotated;
             latest.Region = PixelRegion.Full(rotated);
-            latest.Saved = saved;
-            PreviewImage = ToBitmap(preview);
             UpdateLatestText();
+            Refresh();
+            _log.Info($"Rotate finished after {clock.ElapsedMilliseconds} ms");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or OutOfMemoryException or OverflowException)
         {
-            _log.Error($"Rotate failed: {ex.GetType().Name}: {ex.Message}");
-            Notice = $"The receipt couldn't be rotated: {ex.Message}";
+            _log.Error($"Rotate failed after {clock.ElapsedMilliseconds} ms: {ex.GetType().Name}: {ex.Message}");
+            PreviewImage = previousPreview;
+            TryDelete(newPath);
+            Notice = $"The receipt couldn't be rotated, so it's unchanged: {ex.Message}";
         }
         finally
         {
+            BusyText = "";
             IsProcessing = false;
         }
     }
@@ -617,6 +736,114 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>Moves a receipt from the list, keeping the latest scan's actions pointed at its new location.</summary>
+    public void MoveReceiptTo(ReceiptFileViewModel receipt, string folder)
+    {
+        var entry = receipt.Entry;
+        if (PathEquals(entry.Folder, folder))
+        {
+            return;
+        }
+
+        if (IsProcessing)
+        {
+            Notice = "Wait for the current save to finish, then move the receipt.";
+            return;
+        }
+
+        try
+        {
+            var moved = ReceiptStore.Move(new SavedReceipt(entry.Folder, entry.BaseName, entry.Files), folder);
+            if (IsLatest(entry))
+            {
+                _latest!.Saved = moved;
+                UpdateLatestText();
+            }
+
+            LogSaved(moved);
+            Notice = $"Moved to {TargetNameOf(folder)}";
+            Refresh();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Error($"Move failed: {ex.GetType().Name}: {ex.Message}");
+            Notice = $"The receipt couldn't be moved: {ex.Message}";
+        }
+    }
+
+    public void ReportDragFailure(Exception ex)
+    {
+        _log.Error($"Drag failed: {ex.GetType().Name}: {ex.Message}");
+        Notice = $"That drag didn't work: {ex.Message}";
+    }
+
+    [RelayCommand]
+    public void OpenReceipt(ReceiptFileViewModel receipt) => RunPlatform(() => _platform.OpenFile(receipt.Files[0]), "open that receipt");
+
+    [RelayCommand]
+    public void ShowReceiptInFileManager(ReceiptFileViewModel receipt) => RunPlatform(() => _platform.ShowFile(receipt.Files[0]), "open File Explorer");
+
+    [RelayCommand]
+    public void ShowLatestInFileManager()
+    {
+        if (_latest?.Saved is { } saved)
+        {
+            RunPlatform(() => _platform.ShowFile(saved.Files[0]), "open File Explorer");
+        }
+    }
+
+    [RelayCommand]
+    public void DeleteReceipt(ReceiptFileViewModel receipt)
+    {
+        var entry = receipt.Entry;
+        if (IsProcessing)
+        {
+            Notice = "Wait for the current save to finish, then delete the receipt.";
+            return;
+        }
+
+        try
+        {
+            ReceiptStore.Recycle(new SavedReceipt(entry.Folder, entry.BaseName, entry.Files));
+            if (IsLatest(entry))
+            {
+                ClearLatest();
+            }
+
+            Notice = "Moved to the Recycle Bin.";
+            Refresh();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Error($"Recycle failed: {ex.GetType().Name}: {ex.Message}");
+            Notice = $"The receipt couldn't be moved to the Recycle Bin, so it was kept: {ex.Message}";
+        }
+    }
+
+    private bool IsLatest(ReceiptEntry entry) =>
+        _latest?.Saved is { } saved && PathEquals(saved.Folder, entry.Folder) && string.Equals(saved.BaseName, entry.BaseName, StringComparison.OrdinalIgnoreCase);
+
+    private void RunPlatform(Action action, string goal)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            _log.Error($"Couldn't {goal}: {ex.GetType().Name}: {ex.Message}");
+            Notice = $"Couldn't {goal}: {ex.Message}";
+        }
+    }
+
+    private void LogSaved(SavedReceipt saved)
+    {
+        foreach (var file in saved.Files)
+        {
+            _log.Info($"Receipt file on disk: {file} ({new FileInfo(file).Length} bytes)");
+        }
+    }
+
     [RelayCommand]
     public void TileClicked(FolderTileViewModel tile)
     {
@@ -658,6 +885,35 @@ public partial class MainViewModel : ObservableObject
 
         _settings.TargetFolder = TargetFolder;
         SaveSettings();
+        RefreshReceipts();
+    }
+
+    /// <summary>
+    /// Lists the folder scans are going to, so a new scan always shows up. Unchanged lists aren't rebuilt,
+    /// because window focus changes during a drag would otherwise replace the row being dragged.
+    /// </summary>
+    private void RefreshReceipts()
+    {
+        try
+        {
+            var entries = _folders.ListReceipts(TargetFolder);
+            if (!Receipts.Select(r => r.Entry.Key).SequenceEqual(entries.Select(e => e.Key)))
+            {
+                Receipts.Clear();
+                foreach (var entry in entries)
+                {
+                    Receipts.Add(new ReceiptFileViewModel(entry));
+                }
+            }
+
+            HasNoReceipts = Receipts.Count == 0;
+            ReceiptsHeading = $"Receipts in {TargetName}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Error($"Couldn't list receipts: {ex.GetType().Name}: {ex.Message}");
+            Notice = $"Couldn't list the receipts in that folder: {ex.Message}";
+        }
     }
 
     /// <summary>Reloads tiles and breadcrumbs, recovering if folders were changed outside the app.</summary>
@@ -701,6 +957,8 @@ public partial class MainViewModel : ObservableObject
             {
                 Breadcrumbs.Add(new BreadcrumbViewModel(crumbs[i].Name, crumbs[i].Path, i == crumbs.Count - 1));
             }
+
+            RefreshReceipts();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -822,7 +1080,7 @@ public partial class MainViewModel : ObservableObject
     {
         ClearError();
         IsSettingsBusy = true;
-        SettingsMessage = "Follow Brother's dialog: set Document Size to Long Paper, then click OK.";
+        SettingsMessage = LongPaperInstruction;
         await _scannerGate.WaitAsync();
         try
         {
@@ -848,7 +1106,7 @@ public partial class MainViewModel : ObservableObject
     public async Task RunDriverCheckAsync()
     {
         IsSettingsBusy = true;
-        SettingsMessage = "Follow Brother's dialog: set Document Size to Long Paper, then click OK.";
+        SettingsMessage = LongPaperInstruction;
         var report = Path.Combine(_log.Folder, $"twain-capabilities-{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.md");
         await _scannerGate.WaitAsync();
         try
@@ -892,6 +1150,7 @@ public partial class MainViewModel : ObservableObject
         PreviewImage = null;
         LatestTitle = "";
         LatestDetails = "";
+        LatestPath = "";
     }
 
     private void UpdateLatestText()
@@ -907,11 +1166,13 @@ public partial class MainViewModel : ObservableObject
         {
             LatestTitle = saved.BaseName;
             LatestDetails = $"{size}\nIn {TargetNameOf(saved.Folder)}";
+            LatestPath = saved.Files[0];
         }
         else
         {
             LatestTitle = "Check this scan";
             LatestDetails = $"{size}\nNot saved yet";
+            LatestPath = "";
         }
     }
 

@@ -34,8 +34,9 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// The simulator runs only when asked for, or where real scanning is impossible. On Windows a missing
-    /// worker shows an error instead, so simulated scans can't be mistaken for real ones.
+    /// The simulator runs only when asked for, or where real scanning is impossible. A missing driver
+    /// shows an error instead, so simulated scans can't be mistaken for real ones. Windows uses TWAIN,
+    /// and Linux uses SANE's scanimage (RS_SCANIMAGE can point at another copy).
     /// </summary>
     private static IScanBackend CreateBackend(string[] args, AppLog log)
     {
@@ -44,6 +45,12 @@ public partial class App : Application
         {
             var worker = Path.Combine(AppContext.BaseDirectory, "worker", "ReceiptScanner.TwainWorker.exe");
             return new WorkerBackend(worker, log);
+        }
+
+        if (simulate is null && OperatingSystem.IsLinux())
+        {
+            var scanimage = Environment.GetEnvironmentVariable("RS_SCANIMAGE");
+            return new SaneBackend(log, string.IsNullOrWhiteSpace(scanimage) ? "scanimage" : scanimage);
         }
 
         var behavior = SimulatedBehavior.Normal;

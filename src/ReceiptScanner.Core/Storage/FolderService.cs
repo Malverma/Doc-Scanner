@@ -2,6 +2,13 @@ namespace ReceiptScanner.Core.Storage;
 
 public sealed record FolderEntry(string Name, string Path, int ReceiptCount, bool HasSubfolders);
 
+/// <summary>One receipt in a folder. A saved PDF and PNG pair is one receipt with two files.</summary>
+public sealed record ReceiptEntry(string BaseName, string Folder, IReadOnlyList<string> Files, DateTime Modified, long SizeBytes)
+{
+    /// <summary>Changes whenever the receipt's files do, unlike record equality on a list.</summary>
+    public string Key => $"{Folder}|{string.Join('|', Files)}|{Modified.Ticks}|{SizeBytes}";
+}
+
 public sealed class FolderNameException(string message) : Exception(message);
 
 /// <summary>Folder browsing and editing under the base folder. Nothing outside it is ever touched.</summary>
@@ -34,6 +41,29 @@ public sealed class FolderService(string baseFolder)
             .Where(d => (d.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0 && !d.Name.StartsWith('.'))
             .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
             .Select(d => new FolderEntry(d.Name, d.FullName, CountReceipts(d.FullName), HasSubfolders(d)))
+            .ToList();
+    }
+
+    /// <summary>The receipts directly in a folder, newest first.</summary>
+    public IReadOnlyList<ReceiptEntry> ListReceipts(string folder)
+    {
+        EnsureInside(folder);
+        return new DirectoryInfo(folder)
+            .EnumerateFiles()
+            .Where(f => IsReceiptFile(f.FullName))
+            .GroupBy(f => Path.GetFileNameWithoutExtension(f.Name), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var files = g.OrderBy(f => f.Extension, StringComparer.OrdinalIgnoreCase).ToList();
+                return new ReceiptEntry(
+                    g.Key,
+                    Path.GetFullPath(folder),
+                    files.Select(f => f.FullName).ToList(),
+                    files.Max(f => f.LastWriteTime),
+                    files.Sum(f => f.Length));
+            })
+            .OrderByDescending(r => r.Modified)
+            .ThenBy(r => r.BaseName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

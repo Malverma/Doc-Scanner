@@ -1,13 +1,20 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using ReceiptScanner.App.ViewModels;
 
 namespace ReceiptScanner.App.Views;
 
 public partial class MainWindow : Window
 {
+    private const double DragThreshold = 6;
+
     private readonly CancellationTokenSource _closing = new();
+    private PointerPressedEventArgs? _press;
+    private Point _pressPoint;
+    private ReceiptFileViewModel? _dragged;
 
     public MainWindow()
     {
@@ -49,6 +56,110 @@ public partial class MainWindow : Window
         {
             ViewModel?.OpenTileCommand.Execute(tile);
         }
+    }
+
+    private void OnReceiptPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is Control control && e.GetCurrentPoint(control).Properties.IsLeftButtonPressed)
+        {
+            _press = e;
+            _pressPoint = e.GetPosition(this);
+        }
+    }
+
+    private void OnReceiptPointerReleased(object? sender, PointerReleasedEventArgs e) => _press = null;
+
+    private void OnReceiptDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is Control { DataContext: ReceiptFileViewModel receipt })
+        {
+            ViewModel?.OpenReceiptCommand.Execute(receipt);
+        }
+    }
+
+    /// <summary>The drag waits for real movement, because starting one on press would swallow double-clicks.</summary>
+    private async void OnReceiptPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_press is not { } press || sender is not Control { DataContext: ReceiptFileViewModel receipt })
+        {
+            return;
+        }
+
+        var moved = e.GetPosition(this) - _pressPoint;
+        if (Math.Abs(moved.X) < DragThreshold && Math.Abs(moved.Y) < DragThreshold)
+        {
+            return;
+        }
+
+        _press = null;
+        _dragged = receipt;
+        try
+        {
+            // Copy only: Explorer treats a same-drive move as the default, which would take the receipt
+            // out of its folder. Dropping on a folder tile in this app is handled as a move below.
+            var data = new DataTransfer();
+            foreach (var path in receipt.Files)
+            {
+                if (await StorageProvider.TryGetFileFromPathAsync(path) is { } file)
+                {
+                    data.Add(DataTransferItem.CreateFile(file));
+                }
+            }
+
+            await DragDrop.DoDragDropAsync(press, data, DragDropEffects.Copy);
+        }
+        catch (Exception ex)
+        {
+            // An async void handler has nowhere to send this, and it would otherwise end the app.
+            ViewModel?.ReportDragFailure(ex);
+        }
+        finally
+        {
+            _dragged = null;
+        }
+    }
+
+    private static string? FolderOf(object? target) => (target as Control)?.DataContext switch
+    {
+        FolderTileViewModel tile => tile.Path,
+        BreadcrumbViewModel crumb => crumb.Path,
+        _ => null,
+    };
+
+    private void OnFolderDragEnter(object? sender, DragEventArgs e)
+    {
+        if (_dragged is not null && sender is Button button)
+        {
+            button.Classes.Set("dropTarget", true);
+        }
+
+        OnFolderDragOver(sender, e);
+    }
+
+    /// <summary>Only receipts dragged from this window can land here, since this moves files.</summary>
+    private void OnFolderDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = _dragged is not null && FolderOf(sender) is not null ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnFolderDragLeave(object? sender, DragEventArgs e)
+    {
+        if (sender is Button button)
+        {
+            button.Classes.Set("dropTarget", false);
+        }
+    }
+
+    private void OnFolderDrop(object? sender, DragEventArgs e)
+    {
+        OnFolderDragLeave(sender, e);
+        if (_dragged is { } receipt && FolderOf(sender) is { } folder)
+        {
+            ViewModel?.MoveReceiptTo(receipt, folder);
+        }
+
+        e.Handled = true;
     }
 
     private void OnNameBoxKeyDown(object? sender, KeyEventArgs e)

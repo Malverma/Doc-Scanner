@@ -10,10 +10,9 @@ internal sealed class WorkerException(ScanErrorCode code, string message) : Exce
     public ScanErrorCode Code { get; } = code;
 }
 
-/// <summary>Opens the TWAIN session and the DS-640's source, and guarantees they get closed.</summary>
+/// <summary>Opens the TWAIN session and a recognized scanner's source, and guarantees they get closed.</summary>
 internal sealed class TwainSessionHost : IDisposable
 {
-    private const string ExpectedModel = "DS-640";
 
     private TwainSessionHost(Win32Pump pump, TwainSession session)
     {
@@ -27,9 +26,12 @@ internal sealed class TwainSessionHost : IDisposable
 
     public DataSource Source { get; private set; } = null!;
 
+    public ScannerModel Model { get; private set; } = null!;
+
     public string DriverVersion => Source.Version.Info ?? "";
 
-    public static TwainSessionHost Open()
+    /// <param name="preferredScannerId">A <see cref="ScannerModel.Id"/> to require, or null for the first recognized scanner.</param>
+    public static TwainSessionHost Open(string? preferredScannerId)
     {
         PlatformInfo.Current.PreferNewDSM = false;
         Output.Log($"DSM: {PlatformInfo.Current.ExpectedDsmPath} (exists: {PlatformInfo.Current.DsmExists}); 64-bit process: {Environment.Is64BitProcess}");
@@ -50,8 +52,12 @@ internal sealed class TwainSessionHost : IDisposable
 
             var sources = host.Session.GetSources().ToList();
             Output.Log($"TWAIN sources: {string.Join(" | ", sources.Select(s => s.Name))}");
-            var source = sources.FirstOrDefault(s => s.Name.Contains(ExpectedModel, StringComparison.OrdinalIgnoreCase))
-                ?? throw new WorkerException(ScanErrorCode.ScannerNotFound, "No TWAIN source for the DS-640 is installed.");
+            var preferred = ScannerModels.FromId(preferredScannerId);
+            var pick = ScannerModels.Pick(sources.Select(s => s.Name), preferredScannerId)
+                ?? throw new WorkerException(ScanErrorCode.ScannerNotFound, preferred is null
+                    ? $"No TWAIN source for a supported scanner ({string.Join(", ", ScannerModels.All.Select(m => m.DisplayName))}) is installed."
+                    : $"No TWAIN source for the {preferred.DisplayName} is installed.");
+            var source = sources.First(s => s.Name == pick.Source);
 
             rc = source.Open();
             if (rc != ReturnCode.Success)
@@ -63,6 +69,8 @@ internal sealed class TwainSessionHost : IDisposable
             }
 
             host.Source = source;
+            host.Model = pick.Model;
+            Output.Emit(new WorkerEvent { Type = WorkerEvent.Source, ScannerId = pick.Model.Id, Message = $"{source.Name}, driver {host.DriverVersion}" });
             Output.Log($"Source: {source.Name}; manufacturer: {source.Manufacturer}; family: {source.ProductFamily}; driver: {source.Version.Info}; protocol: {source.ProtocolVersion}");
             return host;
         }

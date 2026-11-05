@@ -39,6 +39,24 @@ public class WorkerBackendTests
     }
 
     [Fact]
+    public async Task Scan_size_and_paper_remaining_cross_the_process_boundary()
+    {
+        var (backend, request, dir) = Setup("""
+            echo "$@" > "$(dirname "$0")/args"
+            head -c 200 /dev/zero > "$(dirname "$0")/scan.raw"
+            echo '{"Type":"complete","Width":10,"Height":20,"BytesPerPixel":1,"Dpi":300,"PaperRemaining":true}'
+            """);
+        using (dir)
+        {
+            var outcome = await backend.ScanAsync(request with { ExpectedWidthMm = 80.5, ExpectedLengthMm = 400 }, NoProgress, CancellationToken.None);
+
+            Assert.True(Assert.IsType<ScanOutcome.Completed>(outcome).PaperRemaining);
+            var args = await File.ReadAllTextAsync(Path.Combine(dir.Path, "args"));
+            Assert.Contains("--width-mm 80.5 --length-mm 400", args, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task File_smaller_than_reported_is_a_failure_and_is_removed()
     {
         var (backend, request, dir) = Setup($$"""
@@ -215,6 +233,37 @@ public class WorkerBackendTests
 
             Assert.True(status.Found);
             Assert.Contains("DS-640", status.Detail);
+        }
+    }
+
+    [Fact]
+    public async Task Probe_recognizes_the_epson_and_passes_a_preference_to_the_worker()
+    {
+        var (backend, _, dir) = Setup("""
+            echo "$@" > "$(dirname "$0")/args"
+            echo '{"Type":"source","ScannerId":"epson-rr70w","Message":"EPSON RR-70W, driver 2.0"}'
+            """);
+        using (dir)
+        {
+            backend.PreferredScannerId = "epson-rr70w";
+            var status = await backend.ProbeAsync();
+
+            Assert.True(status.Found);
+            Assert.Equal("RR-70W ready", status.Summary);
+            Assert.Same(ScannerModels.EpsonRr70W, backend.Model);
+            Assert.Contains("--scanner epson-rr70w", File.ReadAllText(Path.Combine(dir.Path, "args")));
+        }
+    }
+
+    [Fact]
+    public async Task Probe_without_a_scanner_id_recognizes_the_model_from_the_source_name()
+    {
+        var (backend, _, dir) = Setup("""echo '{"Type":"source","Message":"EPSON RR-70W, driver 2.0"}'""");
+        using (dir)
+        {
+            var status = await backend.ProbeAsync();
+
+            Assert.Same(ScannerModels.EpsonRr70W, status.Model);
         }
     }
 }

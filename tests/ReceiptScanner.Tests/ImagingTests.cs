@@ -82,6 +82,58 @@ public class ImageAnalysisTests
         Assert.Equal(new PixelRegion(200, 0, 400, 300), ImageAnalysis.Analyze(image).ContentBounds);
     }
 
+    // A receipt on a black backdrop, as the Epson RR-70W scans it, where the paper is the most common level.
+    // At 100 dpi: paper x 40-239, a sensor-streak speck at x 280, print at x 100-149.
+    private static byte OnBackdrop(int x, int y, Func<int, int, bool> isPaper) =>
+        x == 280 ? (byte)200
+        : !isPaper(x, y) ? (byte)0
+        : x is >= 100 and < 150 && y is >= 300 and < 310 ? (byte)30
+        : (byte)255;
+
+    [Fact]
+    public void Receipt_on_a_black_backdrop_is_trimmed_to_the_paper()
+    {
+        using var dir = new TempDir();
+        var image = Images.Gray(dir.Path, 300, 1000, (x, y) => OnBackdrop(x, y, (px, py) => px is >= 40 and < 240 && py is >= 100 and < 900));
+
+        var result = ImageAnalysis.Analyze(image);
+
+        Assert.False(result.IsBlank);
+        Assert.False(result.ContentAtBottomEdge);
+        Assert.Equal(new PixelRegion(40, 100, 240, 900), result.ContentBounds);
+        Assert.Equal(new PixelRegion(36, 96, 244, 904), result.TrimRegion);
+    }
+
+    [Fact]
+    public void Skewed_receipt_corner_at_the_bottom_is_not_a_cut_off()
+    {
+        using var dir = new TempDir();
+        var image = Images.Gray(dir.Path, 300, 1000, (x, y) => OnBackdrop(x, y, (px, py) => py >= 100 && px >= 40 && px < (py < 950 ? 240 : 70)));
+
+        Assert.False(ImageAnalysis.Analyze(image).ContentAtBottomEdge);
+    }
+
+    [Fact]
+    public void Receipt_still_full_width_at_the_bottom_is_flagged()
+    {
+        using var dir = new TempDir();
+        var image = Images.Gray(dir.Path, 300, 1000, (x, y) => OnBackdrop(x, y, (px, py) => px is >= 40 and < 240 && py >= 100));
+
+        Assert.True(ImageAnalysis.Analyze(image).ContentAtBottomEdge);
+    }
+
+    [Fact]
+    public void Unprinted_paper_on_a_black_backdrop_is_blank()
+    {
+        using var dir = new TempDir();
+        var image = Images.Gray(dir.Path, 300, 1000, (x, y) => x is >= 40 and < 240 && y is >= 100 and < 900 ? (byte)255 : (byte)0);
+
+        var result = ImageAnalysis.Analyze(image);
+
+        Assert.True(result.IsBlank);
+        Assert.Equal(PixelRegion.Full(image), result.TrimRegion);
+    }
+
     [Fact]
     public void Color_images_are_analyzed_by_brightness()
     {
@@ -89,6 +141,52 @@ public class ImageAnalysisTests
         var image = Images.Rgb(dir.Path, 300, 300, (x, y) => x is >= 50 and < 100 && y is >= 40 and < 90 ? ((byte)200, (byte)20, (byte)20) : ((byte)245, (byte)245, (byte)245));
 
         Assert.Equal(new PixelRegion(50, 40, 100, 90), ImageAnalysis.Analyze(image).ContentBounds);
+    }
+}
+
+public class RotateBandTests
+{
+    [Theory]
+    [InlineData(1, 1, 1)]
+    [InlineData(1, 1, 50)]
+    [InlineData(1, 1, 1 << 20)]
+    [InlineData(2, 1, 50)]
+    [InlineData(3, 1, 50)]
+    [InlineData(0, 1, 50)]
+    [InlineData(1, 3, 50)]
+    [InlineData(2, 3, 100)]
+    [InlineData(3, 3, 100)]
+    public void Every_pixel_lands_in_place_whatever_the_band_size(int turns, int channels, int bandBytes)
+    {
+        using var dir = new TempDir();
+        const int Width = 11;
+        const int Height = 37;
+        var image = channels == 1
+            ? Images.Gray(dir.Path, Width, Height, (x, y) => (byte)((x * 3) + (y * 5)))
+            : Images.Rgb(dir.Path, Width, Height, (x, y) => ((byte)x, (byte)y, (byte)(x + y)));
+        var source = File.ReadAllBytes(image.Path);
+
+        var rotated = ImageOps.Rotate(image, PixelRegion.Full(image), turns, Path.Combine(dir.Path, "r.raw"), bandBytes);
+
+        Assert.True(rotated.IsIntact());
+        var data = File.ReadAllBytes(rotated.Path);
+        for (var y = 0; y < rotated.Height; y++)
+        {
+            for (var x = 0; x < rotated.Width; x++)
+            {
+                var (sx, sy) = turns switch
+                {
+                    1 => (y, Height - 1 - x),
+                    2 => (Width - 1 - x, Height - 1 - y),
+                    3 => (Width - 1 - y, x),
+                    _ => (x, y),
+                };
+                for (var c = 0; c < channels; c++)
+                {
+                    Assert.Equal(source[(((sy * Width) + sx) * channels) + c], data[(((y * rotated.Width) + x) * channels) + c]);
+                }
+            }
+        }
     }
 }
 
@@ -134,6 +232,30 @@ public class CompletenessTests
     [Fact]
     public void Unconfirmed_long_paper_is_suspect() =>
         Assert.Contains(SuspectReason.LongPaperUnconfirmed, Completeness.Assess(OfLengthMm(300), Analysis(), Status(confirmed: false)).Reasons);
+
+    [Fact]
+    public void Paper_left_in_the_scanner_is_suspect() =>
+        Assert.Contains(SuspectReason.PaperLeftInScanner, Completeness.Assess(OfLengthMm(300), Analysis(), Status(), paperRemaining: true).Reasons);
+
+    [Theory]
+    [InlineData(300d, 400d, true)]
+    [InlineData(396d, 400d, false)]
+    [InlineData(500d, 400d, false)]
+    [InlineData(300d, null, false)]
+    public void Expected_length_only_flags_shorter_scans(double mm, double? expected, bool suspect) =>
+        Assert.Equal(suspect, Completeness.Assess(OfLengthMm(mm), Analysis(), Status(), expectedLengthMm: expected).Reasons.Contains(SuspectReason.ShorterThanExpected));
+
+    [Theory]
+    [InlineData(0, 50, true, true)]
+    [InlineData(10, 100, true, true)]
+    [InlineData(10, 90, true, false)]
+    [InlineData(0, 100, false, false)]
+    public void Content_at_a_narrowed_side_edge_is_suspect(int left, int right, bool widthLimited, bool suspect)
+    {
+        var analysis = new ContentAnalysis(new PixelRegion(left, 0, right, 100), default, false, false, 245);
+
+        Assert.Equal(suspect, Completeness.Assess(OfLengthMm(300), analysis, Status(), widthLimited: widthLimited).Reasons.Contains(SuspectReason.ContentAtSideEdge));
+    }
 }
 
 public class EncoderTests

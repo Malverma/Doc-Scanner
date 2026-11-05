@@ -19,6 +19,21 @@ public sealed partial class FolderTileViewModel(FolderEntry entry) : ObservableO
     private bool _isTarget;
 }
 
+public sealed class ReceiptFileViewModel(ReceiptEntry entry)
+{
+    public ReceiptEntry Entry { get; } = entry;
+
+    public string Name { get; } = entry.BaseName;
+
+    public IReadOnlyList<string> Files { get; } = entry.Files;
+
+    public string Details { get; } =
+        $"{string.Join(" + ", entry.Files.Select(f => System.IO.Path.GetExtension(f).TrimStart('.').ToUpperInvariant()))}, {entry.Modified:g}, {FormatSize(entry.SizeBytes)}";
+
+    private static string FormatSize(long bytes) =>
+        bytes < 1024 * 1024 ? $"{Math.Max(1, bytes / 1024)} KB" : $"{bytes / 1048576.0:0.0} MB";
+}
+
 public sealed record BreadcrumbViewModel(string Name, string Path, bool IsLast);
 
 public sealed record Choice<T>(string Label, T Value)

@@ -116,6 +116,13 @@ public static class ReceiptStore
             foreach (var (partial, final) in partials)
             {
                 File.Move(partial, final, overwrite: replaceExisting);
+
+                // "Saved" must mean the file is really there, whatever the sync client or antivirus did.
+                var written = new FileInfo(final);
+                if (!written.Exists || written.Length == 0)
+                {
+                    throw new IOException($"{final} wasn't on disk after saving.");
+                }
             }
         }
         catch

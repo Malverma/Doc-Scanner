@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs the published worker against a fake TWAIN source under Wine, in a throwaway prefix.
-# Proves the worker's TWAIN code paths work. Says nothing about Brother's real driver.
+# Proves the worker's TWAIN code paths work. Says nothing about Brother's or Epson's real drivers.
 # Needs: wine (with display), clang, lld. Run scripts/publish.sh first.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -60,6 +60,16 @@ PY
 
 run normal probe
 check "probe finds the source" 0 "'DS-640' in one('source')['Message'] and 'fake-1.0' in one('source')['Message']"
+check "probe recognizes the DS-640" 0 "one('source')['ScannerId']=='brother-ds640'"
+
+FAKE_DS_NAME="EPSON RR-70W" run normal probe
+check "probe recognizes the Epson RR-70W" 0 "one('source')['ScannerId']=='epson-rr70w' and 'RR-70W' in one('source')['Message']"
+
+FAKE_DS_NAME="EPSON RR-70W" run normal probe --scanner brother-ds640
+check "a preferred model that isn't installed is not found" 1 "one('error')['Code']=='ScannerNotFound' and not by('source')"
+
+FAKE_DS_NAME="EPSON RR-70W" scan normal --scanner epson-rr70w
+check "Epson-named source scans" 0 "one('complete').get('Height')==H and data==pat(1)"
 
 rm -f "$prof"
 scan normal
@@ -76,10 +86,29 @@ scan vanilla
 check "inverted (vanilla) gray is corrected" 0 "one('complete')['Height']==H and data==pat(1)"
 
 scan twopages
-check "second page ignored: one receipt per file" 0 "one('complete')['Height']==H and data==pat(1)"
+check "more pages pending: first page kept and flagged" 0 "one('complete')['Height']==H and data==pat(1) and one('complete')['PaperRemaining'] is True"
 
 scan clamp
 check "clamped frame reported, not hidden" 0 "one('longPaper')['FrameHeightInches']==14 and one('complete')['Height']==H"
+
+scan normal
+check "emptied feeder is not flagged" 0 "'PaperRemaining' not in one('complete')"
+scan paperleft
+check "paper left in the feeder is flagged" 0 "one('complete')['PaperRemaining'] is True and data==pat(1)"
+scan resetframe
+check "frame reset by scan settings is set again" 0 "one('longPaper')['Confirmed'] and one('longPaper')['FrameHeightInches']==72"
+scan normal --length-mm 200
+check "short expected length still asks for the full 72 in" 0 "one('longPaper')['FrameHeightInches']==72 and one('complete')['Height']==H"
+scan clamp --length-mm 200
+check "expected length never shortens a longer frame" 0 "one('longPaper')['FrameHeightInches']==14"
+scan reject72
+check "frame refused: unconfirmed without an expected length" 1 "one('error')['Code']=='LongPaperUnconfirmed'"
+scan reject72 --length-mm 762
+check "frame refused: expected length is accepted instead" 0 "one('longPaper')['Confirmed'] and abs(one('longPaper')['FrameHeightInches']-30)<0.01 and one('complete')['Height']==H"
+scan normal --width-mm 80
+check "width setting sets the frame" 0 "'3.15x72 in at left 0' in one('longPaper')['Evidence'] and one('longPaper')['FrameHeightInches']==72"
+scan centered --width-mm 80
+check "width is centered on a center-feeding scanner" 0 "'3.15x72 in at left 2.68' in one('longPaper')['Evidence']"
 
 scan jam
 check "jam reported" 1 "one('error')['Code']=='Jam' and not by('complete')"
@@ -108,6 +137,10 @@ run normal setup --profile "$winprof"
 check "setup saves driver state" 0 "one('result')['Success'] is True and os.path.exists(os.environ['RAW'].replace('s.raw','p.json'))"
 scan normal
 check "saved profile restored and confirmed" 0 "one('longPaper')['Method']=='Saved driver profile' and one('longPaper')['Confirmed'] and data==pat(1)"
+scan resetframe
+check "saved profile's frame survives a driver reset" 0 "one('longPaper')['Method']=='Saved driver profile' and one('longPaper')['Confirmed'] and one('longPaper')['FrameHeightInches']==72"
+scan normal --width-mm 80
+check "width applied on top of a saved profile" 0 "one('longPaper')['Method']=='Saved driver profile' and 'frame reasserted, 3.15 in wide' in one('longPaper')['Evidence'] and one('longPaper')['FrameHeightInches']==72"
 scan rejectprofile
 check "rejected profile falls back to capabilities" 0 "one('longPaper')['Method']=='TWAIN capabilities' and one('longPaper')['Confirmed']"
 python3 -I -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d['DriverVersion']='old';json.dump(d,open(p,'w'))" "$prof"
