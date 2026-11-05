@@ -18,6 +18,7 @@ __declspec(dllimport) HANDLE WINAPI CreateThread(void *attrs, unsigned long stac
 __declspec(dllimport) void WINAPI Sleep(unsigned long ms);
 __declspec(dllimport) HMODULE WINAPI LoadLibraryA(const char *name);
 __declspec(dllimport) FARPROC WINAPI GetProcAddress(HMODULE module, const char *name);
+__declspec(dllimport) unsigned long WINAPI GetModuleFileNameA(HMODULE module, char *buffer, unsigned long size);
 
 #pragma pack(push, 2)
 typedef struct { int16_t Whole; uint16_t Frac; } FIX32;
@@ -103,6 +104,18 @@ static IDENTITY self;
 static FRAME frame = { { 0, 0 }, { 0, 0 }, { 8, 0 }, { 14, 0 } };
 static int row, xferDone, uiOnly;
 static uint32_t customData = 0x11111111;
+
+static HMODULE selfModule;
+
+/* A copy of this file named epson*.ds poses as the Epson RR-70W, so one prefix can hold both scanners. */
+static int is_epson_copy(void) {
+    char path[260];
+    unsigned long n = GetModuleFileNameA(selfModule, path, sizeof path);
+    for (unsigned long i = 0; i + 5 <= n; i++) {
+        if ((path[i] | 32) == 'e' && (path[i + 1] | 32) == 'p' && (path[i + 2] | 32) == 's' && (path[i + 3] | 32) == 'o' && (path[i + 4] | 32) == 'n') return 1;
+    }
+    return 0;
+}
 
 static int mode_is(const char *m) {
     const char *a = mode;
@@ -254,7 +267,8 @@ __declspec(dllexport) uint16_t WINAPI DS_Entry(IDENTITY *origin, uint32_t dg, ui
                 {
                     /* FAKE_DS_NAME lets the tests pose as another model, such as the Epson RR-70W. */
                     char name[34];
-                    copy_str(id->ProductName, GetEnvironmentVariableA("FAKE_DS_NAME", name, sizeof name) ? name : "TW-Brother DS-640");
+                    copy_str(id->ProductName, GetEnvironmentVariableA("FAKE_DS_NAME", name, sizeof name) ? name
+                        : is_epson_copy() ? "EPSON RR-70W" : "TW-Brother DS-640");
                 }
                 return RC_SUCCESS;
             }
@@ -265,7 +279,7 @@ __declspec(dllexport) uint16_t WINAPI DS_Entry(IDENTITY *origin, uint32_t dg, ui
                 appIdentity = origin;
                 if (mode_is("vanilla")) find_cap(0x111F)->value = 1;
                 if (mode_is("centered")) find_cap(0x102D)->value = 2;
-                if (mode_is("noopen")) { status = CC_CHECKDEVICEONLINE; return RC_FAILURE; }
+                if (mode_is("noopen") || (mode_is("brotherunplugged") && !is_epson_copy())) { status = CC_CHECKDEVICEONLINE; return RC_FAILURE; }
                 return RC_SUCCESS;
             }
             if (msg == MSG_CLOSEDS) return RC_SUCCESS;
@@ -381,4 +395,4 @@ __declspec(dllexport) uint16_t WINAPI DS_Entry(IDENTITY *origin, uint32_t dg, ui
     return RC_FAILURE;
 }
 
-int WINAPI DllMainCRTStartup(void *a, unsigned b, void *c) { (void)a; (void)b; (void)c; return 1; }
+int WINAPI DllMainCRTStartup(void *a, unsigned b, void *c) { (void)b; (void)c; if (!selfModule) selfModule = a; return 1; }

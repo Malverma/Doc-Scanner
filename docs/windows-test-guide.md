@@ -90,7 +90,7 @@ Run this if you're using the Epson instead of, or as well as, the DS-640. It has
 1. Install **Epson Scan 2** and the RR-70W scanner driver from Epson's support site. In Epson Scan 2, scan the long receipt with **Document Size > Auto Detect (Long Paper)** and check you get the whole receipt. If not, stop, as with step 1.
 2. In the app, set **Settings > Scanner** to **Epson RR-70W**. The bottom-left corner should say **RR-70W ready**.
 3. Run steps 3 to 6 above. Where they mention Brother's dialog, use Epson's, and choose **Auto Detect (Long Paper)** as the document size.
-4. If it says not found, send the log. Its `TWAIN sources` line shows the name Epson's driver uses.
+4. If it says not found, hover over the status in the bottom-left corner. It lists the scanner drivers the app found. If no Epson entry appears, Windows is using its built-in driver, which this app can't use, so install Epson Scan 2. Either way, send the newest log. Its `TWAIN source details` line shows the name Epson's driver uses.
 
 ## What to send back
 

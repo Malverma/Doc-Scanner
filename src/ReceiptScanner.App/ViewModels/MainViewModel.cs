@@ -164,6 +164,11 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanScan))] private bool _isMoving;
 
     [ObservableProperty] private string _scannerStatus = "Checking scanner";
+
+    /// <summary>Hover text for the status. When the scanner isn't found, it names the drivers the app did see.</summary>
+    [ObservableProperty] private string _scannerStatusTip = CheckAgainTip;
+
+    private const string CheckAgainTip = "Check for the scanner again";
     [ObservableProperty] private bool _scannerFound;
 
     [ObservableProperty] private bool _isSettingsOpen;
@@ -319,6 +324,7 @@ public partial class MainViewModel : ObservableObject
             var status = await _backend.ProbeAsync(cancellationToken);
             ScannerFound = status.Found;
             ScannerStatus = status.Summary;
+            ScannerStatusTip = !status.Found && status.Detail is { Length: > 0 } detail ? $"{detail}\n\nClick to check again." : CheckAgainTip;
             if (status.Detail is not null)
             {
                 _log.Info($"Probe: {status.Summary}: {status.Detail}");

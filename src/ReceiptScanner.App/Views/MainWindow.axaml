@@ -161,10 +161,10 @@
                           CommandParameter="{Binding}">
                     <Button.ContextMenu>
                       <ContextMenu>
-                        <MenuItem Header="Open" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).OpenTileCommand}" CommandParameter="{Binding}"/>
-                        <MenuItem Header="Show in File Explorer" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).OpenTileInFileManagerCommand}" CommandParameter="{Binding}"/>
-                        <MenuItem Header="Rename" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).BeginRenameCommand}" CommandParameter="{Binding}"/>
-                        <MenuItem Header="Delete if empty" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).DeleteFolderCommand}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Open" Command="{ReflectionBinding DataContext.OpenTileCommand, RelativeSource={RelativeSource AncestorType=Window, Tree=Logical}}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Show in File Explorer" Command="{ReflectionBinding DataContext.OpenTileInFileManagerCommand, RelativeSource={RelativeSource AncestorType=Window, Tree=Logical}}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Rename" Command="{ReflectionBinding DataContext.BeginRenameCommand, RelativeSource={RelativeSource AncestorType=Window, Tree=Logical}}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Delete if empty" Command="{ReflectionBinding DataContext.DeleteFolderCommand, RelativeSource={RelativeSource AncestorType=Window, Tree=Logical}}" CommandParameter="{Binding}"/>
                       </ContextMenu>
                     </Button.ContextMenu>
                     <Grid RowDefinitions="*,Auto">
@@ -190,9 +190,9 @@
                           PointerReleased="OnReceiptPointerReleased" DoubleTapped="OnReceiptDoubleTapped">
                     <Border.ContextMenu>
                       <ContextMenu>
-                        <MenuItem Header="Open" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).OpenReceiptCommand}" CommandParameter="{Binding}"/>
-                        <MenuItem Header="Show in File Explorer" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).ShowReceiptInFileManagerCommand}" CommandParameter="{Binding}"/>
-                        <MenuItem Header="Delete" Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).DeleteReceiptCommand}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Open" Command="{ReflectionBinding DataContext.OpenReceiptCommand, RelativeSource={RelativeSource AncestorType=Window, Tree=Logical}}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Show in File Explorer" Command="{ReflectionBinding DataContext.ShowReceiptInFileManagerCommand, RelativeSource={RelativeSource AncestorType=Window, Tree=Logical}}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="Delete" Command="{ReflectionBinding DataContext.DeleteReceiptCommand, RelativeSource={RelativeSource AncestorType=Window, Tree=Logical}}" CommandParameter="{Binding}"/>
                       </ContextMenu>
                     </Border.ContextMenu>
                     <StackPanel Spacing="2">
@@ -318,7 +318,7 @@
 
     <Border Grid.Row="2" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="14,4">
       <Grid ColumnDefinitions="*,Auto">
-        <Button Classes="link" Command="{Binding ProbeScannerCommand}" ToolTip.Tip="Check for the scanner again" HorizontalAlignment="Left">
+        <Button Classes="link" Command="{Binding ProbeScannerCommand}" ToolTip.Tip="{Binding ScannerStatusTip}" HorizontalAlignment="Left">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{DynamicResource OkBrush}" IsVisible="{Binding ScannerFound}"/>
             <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{DynamicResource ErrorLineBrush}" IsVisible="{Binding !ScannerFound}"/>

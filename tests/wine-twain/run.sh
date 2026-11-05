@@ -71,6 +71,17 @@ check "a preferred model that isn't installed is not found" 1 "one('error')['Cod
 FAKE_DS_NAME="EPSON RR-70W" scan normal --scanner epson-rr70w
 check "Epson-named source scans" 0 "one('complete').get('Height')==H and data==pat(1)"
 
+# Both drivers installed, with the DS-640 unplugged: Automatic must move on to the Epson.
+mkdir -p "$WINEPREFIX/drive_c/windows/twain_32/epson"
+cp "$work/fake.ds" "$WINEPREFIX/drive_c/windows/twain_32/epson/epson.ds"
+run brotherunplugged probe
+check "Automatic skips an unplugged DS-640 and finds the Epson" 0 "one('source')['ScannerId']=='epson-rr70w'"
+run brotherunplugged probe --scanner brother-ds640
+check "choosing the unplugged DS-640 reports it not found" 1 "one('error')['Code']=='ScannerNotFound'"
+run normal probe
+check "with both connected, Automatic prefers the DS-640" 0 "one('source')['ScannerId']=='brother-ds640'"
+rm -rf "$WINEPREFIX/drive_c/windows/twain_32/epson"
+
 rm -f "$prof"
 scan normal
 check "gray scan: pixels exact, padding removed" 0 "one('complete').get('Width')==W and one('complete')['Height']==H and one('complete')['Dpi']==300 and data==pat(1)"

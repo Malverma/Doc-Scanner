@@ -67,20 +67,19 @@ public static class ScannerModels
     /// The source to open: the preferred model's if given, otherwise the first source of any known model,
     /// in the order of <see cref="All"/>. Returns null when nothing matches.
     /// </summary>
-    public static (string Source, ScannerModel Model)? Pick(IEnumerable<string> sourceNames, string? preferredId)
-    {
-        var names = sourceNames.ToList();
-        var preferred = FromId(preferredId);
-        IEnumerable<ScannerModel> candidates = preferred is null ? All : [preferred];
-        foreach (var model in candidates)
-        {
-            var source = names.FirstOrDefault(model.Matches);
-            if (source is not null)
-            {
-                return (source, model);
-            }
-        }
+    public static (string Source, ScannerModel Model)? Pick(IEnumerable<string> sourceNames, string? preferredId) =>
+        Candidates(sourceNames, n => n, preferredId).Cast<(string, ScannerModel)?>().FirstOrDefault();
 
-        return null;
+    /// <summary>
+    /// Every source of a supported model, in the order to try them: by <see cref="All"/>, then as listed.
+    /// A driver can stay installed after its scanner is unplugged, so the caller tries each in turn.
+    /// </summary>
+    /// <param name="describe">The text to match, such as the source's name, product family and maker.</param>
+    public static List<(T Source, ScannerModel Model)> Candidates<T>(IEnumerable<T> sources, Func<T, string> describe, string? preferredId)
+    {
+        var list = sources.ToList();
+        var preferred = FromId(preferredId);
+        IEnumerable<ScannerModel> models = preferred is null ? All : [preferred];
+        return models.SelectMany(m => list.Where(s => m.Matches(describe(s))).Select(s => (s, m))).ToList();
     }
 }

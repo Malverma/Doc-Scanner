@@ -52,22 +52,41 @@ internal sealed class TwainSessionHost : IDisposable
 
             var sources = host.Session.GetSources().ToList();
             Output.Log($"TWAIN sources: {string.Join(" | ", sources.Select(s => s.Name))}");
+            Output.Log($"TWAIN source details: {string.Join(" | ", sources.Select(Describe))}");
             var preferred = ScannerModels.FromId(preferredScannerId);
-            var pick = ScannerModels.Pick(sources.Select(s => s.Name), preferredScannerId)
-                ?? throw new WorkerException(ScanErrorCode.ScannerNotFound, preferred is null
-                    ? $"No TWAIN source for a supported scanner ({string.Join(", ", ScannerModels.All.Select(m => m.DisplayName))}) is installed."
-                    : $"No TWAIN source for the {preferred.DisplayName} is installed.");
-            var source = sources.First(s => s.Name == pick.Source);
-
-            rc = source.Open();
-            if (rc != ReturnCode.Success)
+            var candidates = ScannerModels.Candidates(sources, Describe, preferredScannerId);
+            if (candidates.Count == 0)
             {
-                // The source isn't open, so only the session can report a status. A driver that's installed
-                // but can't be opened almost always means the scanner is unplugged or asleep.
-                var status = host.Session.GetStatus();
-                throw new WorkerException(ScanErrorCode.ScannerNotFound, $"Couldn't open {source.Name}: {rc} (status {status.ConditionCode})");
+                var found = sources.Count == 0 ? "none" : string.Join(", ", sources.Select(s => s.Name));
+                throw new WorkerException(ScanErrorCode.ScannerNotFound, preferred is null
+                    ? $"No TWAIN source for a supported scanner ({string.Join(", ", ScannerModels.All.Select(m => m.DisplayName))}) is installed. TWAIN sources found: {found}."
+                    : $"No TWAIN source for the {preferred.DisplayName} is installed. TWAIN sources found: {found}.");
             }
 
+            // A driver that's installed but can't be opened almost always means its scanner is unplugged or
+            // asleep, so the next recognized scanner gets a turn. Only the session can report a status then.
+            var failures = new List<string>();
+            (DataSource Source, ScannerModel Model)? opened = null;
+            foreach (var candidate in candidates)
+            {
+                rc = candidate.Source.Open();
+                if (rc == ReturnCode.Success)
+                {
+                    opened = candidate;
+                    break;
+                }
+
+                var failure = $"Couldn't open {candidate.Source.Name}: {rc} (status {host.Session.GetStatus().ConditionCode})";
+                Output.Log(failure);
+                failures.Add(failure);
+            }
+
+            if (opened is not { } pick)
+            {
+                throw new WorkerException(ScanErrorCode.ScannerNotFound, string.Join("; ", failures));
+            }
+
+            var source = pick.Source;
             host.Source = source;
             host.Model = pick.Model;
             Output.Emit(new WorkerEvent { Type = WorkerEvent.Source, ScannerId = pick.Model.Id, Message = $"{source.Name}, driver {host.DriverVersion}" });
@@ -80,6 +99,8 @@ internal sealed class TwainSessionHost : IDisposable
             throw;
         }
     }
+
+    private static string Describe(DataSource source) => $"{source.Name} ({source.Manufacturer}, {source.ProductFamily})";
 
     public void Dispose()
     {

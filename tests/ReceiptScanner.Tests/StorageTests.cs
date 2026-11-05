@@ -390,6 +390,18 @@ public class ScannerModelTests
     }
 
     [Fact]
+    public void Every_installed_scanner_is_a_candidate_so_an_unplugged_one_can_be_skipped()
+    {
+        (string Name, string Family)[] sources = [("TW-Brother DS-640", "Brother"), ("WIA-Camera", "x"), ("EPSON Scan 2", "RR-70W")];
+
+        var candidates = ScannerModels.Candidates(sources, s => $"{s.Name} {s.Family}", null);
+
+        Assert.Equal(["TW-Brother DS-640", "EPSON Scan 2"], candidates.Select(c => c.Source.Name));
+        Assert.Equal([ScannerModels.BrotherDs640, ScannerModels.EpsonRr70W], candidates.Select(c => c.Model));
+        Assert.Equal(["EPSON Scan 2"], ScannerModels.Candidates(sources, s => $"{s.Name} {s.Family}", "epson-rr70w").Select(c => c.Source.Name));
+    }
+
+    [Fact]
     public void Unknown_saved_scanner_falls_back_to_automatic()
     {
         using var dir = new TempDir();
